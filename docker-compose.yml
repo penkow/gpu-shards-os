@@ -1,0 +1,38 @@
+services:
+  # Run with HAMi-core's libvgpu.so preloaded — nvidia-smi should report
+  # the limited memory (4 GiB) instead of the GPU's full capacity.
+  hami-limited:
+    build: .
+    image: hami-core-demo:latest
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      LD_PRELOAD: /libvgpu/build/libvgpu.so
+      CUDA_DEVICE_MEMORY_LIMIT: 4g      # hard memory cap seen by the container
+      CUDA_DEVICE_SM_LIMIT: "50"        # cap SM utilization at 50%
+      LIBCUDA_LOG_LEVEL: "4"            # 0=silent, 4=info, 5=debug
+    command: nvidia-smi
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Same image, no preload — baseline output for comparison.
+  baseline:
+    image: hami-core-demo:latest
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    command: nvidia-smi
+    depends_on:
+      - hami-limited
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
