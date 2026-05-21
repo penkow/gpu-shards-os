@@ -1,6 +1,5 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
 import {
   Sidebar,
   SidebarContent,
@@ -8,21 +7,12 @@ import {
   SidebarHeader,
   SidebarRail,
 } from '@/components/ui/sidebar'
-import { fetchState } from '@/features/panel/api'
-import type { PanelState } from '@/features/panel/types'
+import { ConfigDrawer } from '@/components/config-drawer'
 import { AppTitle } from './app-title'
 import { sidebarData } from './data/sidebar-data'
 import { NavGroup } from './nav-group'
 
 export function AppSidebar() {
-  const state = useQuery<PanelState>({
-    queryKey: ['panel', 'state'],
-    queryFn: fetchState,
-    refetchInterval: 5000,
-  }).data
-  const target =
-    state?.connected && state.docker_target ? state.docker_target : 'disconnected'
-
   return (
     <Sidebar collapsible="icon" variant="floating">
       <SidebarHeader>
@@ -34,12 +24,7 @@ export function AppSidebar() {
         ))}
       </SidebarContent>
       <SidebarFooter>
-        <div className="px-3 py-2 text-xs text-sidebar-foreground/70">
-          <div className="font-semibold">HAMi panel</div>
-          <div className="truncate font-mono text-[10px] text-sidebar-foreground/60">
-            {target}
-          </div>
-        </div>
+        <ConfigDrawer />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

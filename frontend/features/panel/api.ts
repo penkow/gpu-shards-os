@@ -1,28 +1,27 @@
+import { getBackendConfig } from '@/lib/backend-config'
 import type {
   ContainerDetail,
   DeployRequest,
   DeployResponse,
+  EditorFile,
+  EditorFilesResponse,
+  EditorRunRequest,
+  EditorRunResponse,
   PanelState,
 } from './types'
-
-export const BACKEND_URL = (
-  process.env.NEXT_PUBLIC_HAMI_BACKEND_URL ?? 'http://localhost:8000'
-).replace(/\/$/, '')
-
-export const API_KEY = process.env.NEXT_PUBLIC_HAMI_API_KEY ?? ''
-
-const DEFAULT_HEADERS: Record<string, string> = API_KEY
-  ? { 'X-API-Key': API_KEY }
-  : {}
 
 async function request<T>(
   path: string,
   init: RequestInit = {}
 ): Promise<T> {
-  const res = await fetch(`${BACKEND_URL}${path}`, {
+  const { url, apiKey } = getBackendConfig()
+  const defaultHeaders: Record<string, string> = apiKey
+    ? { 'X-API-Key': apiKey }
+    : {}
+  const res = await fetch(`${url}${path}`, {
     ...init,
     headers: {
-      ...DEFAULT_HEADERS,
+      ...defaultHeaders,
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...(init.headers ?? {}),
     },
@@ -87,15 +86,80 @@ export function removeContainer(cid: string): Promise<{ ok: boolean }> {
 }
 
 export function shellWebSocketUrl(cid: string): string {
-  const url = new URL(BACKEND_URL)
+  const { url: base, apiKey } = getBackendConfig()
+  const url = new URL(base)
   const scheme = url.protocol === 'https:' ? 'wss' : 'ws'
   const path = `/api/containers/${encodeURIComponent(cid)}/shell`
-  const qs = API_KEY ? `?token=${encodeURIComponent(API_KEY)}` : ''
+  const qs = apiKey ? `?token=${encodeURIComponent(apiKey)}` : ''
   return `${scheme}://${url.host}${path}${qs}`
 }
 
 export function logsStreamUrl(cid: string): string {
+  const { url: base, apiKey } = getBackendConfig()
   const path = `/api/containers/${encodeURIComponent(cid)}/logs/stream`
-  const qs = API_KEY ? `?token=${encodeURIComponent(API_KEY)}` : ''
-  return `${BACKEND_URL}${path}${qs}`
+  const qs = apiKey ? `?token=${encodeURIComponent(apiKey)}` : ''
+  return `${base}${path}${qs}`
+}
+
+// ---- editor --------------------------------------------------------------
+
+export function editorRun(payload: EditorRunRequest): Promise<EditorRunResponse> {
+  return request<EditorRunResponse>('/api/editor/runs', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function editorListFiles(): Promise<EditorFilesResponse> {
+  return request<EditorFilesResponse>('/api/editor/files')
+}
+
+export function editorDeleteFile(name: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(
+    `/api/editor/files/${encodeURIComponent(name)}`,
+    { method: 'DELETE' }
+  )
+}
+
+/**
+ * XHR-based multipart upload so we can drive a per-file progress bar.
+ * Resolves with the saved EditorFile (parsed from the JSON response body).
+ */
+export function editorUploadFile(
+  file: File,
+  onProgress?: (pct: number) => void
+): Promise<EditorFile> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    const form = new FormData()
+    form.append('file', file, file.name)
+
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable && onProgress) {
+        onProgress(Math.round((ev.loaded / ev.total) * 100))
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as EditorFile)
+        } catch (e) {
+          reject(e instanceof Error ? e : new Error(String(e)))
+        }
+      } else {
+        let detail = `HTTP ${xhr.status}`
+        try {
+          const body = JSON.parse(xhr.responseText) as { detail?: string }
+          if (body?.detail) detail = body.detail
+        } catch {}
+        reject(new Error(detail))
+      }
+    }
+    xhr.onerror = () => reject(new Error('upload failed'))
+
+    const { url, apiKey } = getBackendConfig()
+    xhr.open('POST', `${url}/api/editor/files`)
+    if (apiKey) xhr.setRequestHeader('X-API-Key', apiKey)
+    xhr.send(form)
+  })
 }

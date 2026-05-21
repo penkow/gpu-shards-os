@@ -3,7 +3,7 @@
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { BACKEND_URL } from '../api'
+import { getBackendConfig } from '@/lib/backend-config'
 import { usePanelState } from '../hooks'
 
 export function DisconnectedBanner() {
@@ -17,7 +17,7 @@ export function DisconnectedBanner() {
   const message =
     stateError ||
     (fetchError
-      ? `Backend unreachable at ${BACKEND_URL}: ${fetchError}`
+      ? `Backend unreachable at ${getBackendConfig().url}: ${fetchError}`
       : 'Backend is reporting disconnected state.')
 
   return (

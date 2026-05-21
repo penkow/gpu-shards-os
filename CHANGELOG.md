@@ -26,6 +26,74 @@ Each released entry below corresponds to a git tag `v<MAJOR>.<MINOR>.<PATCH>`.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-21
+
+### Added
+
+#### Editor feature
+
+- `POST /api/editor/runs` — start a containerized run from user-supplied Python
+  code. Backend writes `main.py` + a tiny handler-invoking runner into a shared
+  workspace and launches a fresh `auto_remove` container.
+- `GET /api/editor/files`, `POST /api/editor/files` (multipart),
+  `DELETE /api/editor/files/{name}` — list / upload / delete files in the
+  editor workspace bind-mounted into runs at `/workspace`.
+- `EditorService` orchestrates run scripts and file CRUD; filename
+  sanitization rejects path traversal (`/`, `\`, `..`, `\x00`).
+- Two runtime images under `images/editor/`:
+  `gpu-shards-editor-cpu:latest` (python:3.11-slim) and
+  `gpu-shards-editor-gpu:latest` (pytorch:2.4-cuda12.4-runtime). Build with
+  `bash images/editor/build.sh [cpu|gpu|both]`.
+- Editor page (`/editor`) with Monaco code editor, xterm live log terminal,
+  workspace file panel, CPU/GPU switch and per-run GPU index dropdown.
+- Vertical resizable editor/terminal split using
+  [`react-resizable-panels`](https://www.npmjs.com/package/react-resizable-panels)
+  v4 via new `components/ui/resizable.tsx`.
+
+#### Settings dialog
+
+- Sidebar-footer Settings button now opens a Dialog with two sections: Theme
+  (Light / Dark / System) and Backend configuration (URL, API key, Test
+  connection, Save, Default).
+- Backend URL and API key persist in localStorage and are read by the API
+  client at request time, allowing the panel to point at different backends
+  without rebuilding (`lib/backend-config.ts`).
+
+### Changed
+
+- `DockerService`: extracted `_run_container_sync` helper supporting
+  `volumes`, optional `device_requests`, `auto_remove`, and arbitrary
+  `labels`. `deploy` uses it; editor runs reuse it via new async
+  `run_container()`.
+- `LogsView`: accepts `showHeader` to suppress the status / pause / refresh /
+  download strip; viewport is now flex-friendly so the parent's height
+  governs it.
+- App shell: removed the top Header (Search / SidebarTrigger / ThemeSwitch).
+  Editor page consumes full `100svh`.
+- Sidebar title: "GPU Shards" / "Open Source" with a `Boxes` icon brand mark.
+- Sidebar footer: "HAMi panel" / docker target text replaced with the
+  Settings entry (same styling as nav items).
+- `app/layout.tsx` is now async and reads the sidebar cookie via `cookies()`
+  from `next/headers`, passing `sidebarDefaultOpen` to `AppShell` as a prop.
+
+### Fixed
+
+- File upload / delete contention: `/api/editor/files` POST and DELETE
+  handlers now run their disk IO on a worker thread via `asyncio.to_thread`,
+  so a large upload no longer blocks other requests.
+- SSE log stream no longer emits `(container no longer exists)` when the
+  editor's auto-removed container exits — the stream now ends silently.
+- Hydration mismatch on `<Sidebar>`: default-open state is derived
+  server-side from the cookie, so server- and client-rendered `data-state` /
+  `data-collapsible` attributes match.
+
+### Removed
+
+- `BACKEND_URL` / `API_KEY` module exports from `features/panel/api.ts`.
+  Callers now use `getBackendConfig()` from `lib/backend-config.ts`.
+- Top header bar (Search, SidebarTrigger, ThemeSwitch) — replaced by direct
+  page content under the sidebar and the in-Settings theme picker.
+
 ## [0.2.0] — 2026-05-21
 
 ### Changed

@@ -52,3 +52,25 @@ export type DeployResponse = {
   id: string
   name: string
 }
+
+export type EditorRunRequest = {
+  code: string
+  use_gpu: boolean
+  gpu_index?: number
+}
+
+export type EditorRunResponse = {
+  run_id: string
+  container_id: string
+  container_name: string
+}
+
+export type EditorFile = {
+  name: string
+  size: number
+  uploaded_at: string
+}
+
+export type EditorFilesResponse = {
+  files: EditorFile[]
+}

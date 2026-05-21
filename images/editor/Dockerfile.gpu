@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1.6
+# Editor runtime — GPU.
+# Used by /api/editor/runs when the GPU toggle is on. The container expects a
+# DeviceRequest from the backend; the image itself only ensures CUDA-enabled
+# PyTorch is available.
+
+FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN pip install --no-cache-dir \
+    numpy \
+    pandas \
+    scikit-learn \
+    requests
+
+WORKDIR /workspace
+
+CMD ["python", "-c", "print('editor runtime ready')"]

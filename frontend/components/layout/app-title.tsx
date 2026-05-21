@@ -1,7 +1,7 @@
 'use client'
 
 import { Link } from '@/lib/router-compat'
-import { Menu, X } from 'lucide-react'
+import { Boxes, Menu, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   SidebarMenu,
@@ -18,17 +18,22 @@ export function AppTitle() {
       <SidebarMenuItem>
         <SidebarMenuButton
           size='lg'
-          className='gap-0 py-0 hover:bg-transparent active:bg-transparent'
+          className='gap-2 py-0 hover:bg-transparent active:bg-transparent'
           asChild
         >
           <div>
             <Link
               to='/'
               onClick={() => setOpenMobile(false)}
-              className='grid flex-1 text-start text-sm leading-tight'
+              className='flex flex-1 items-center gap-2 text-start text-sm leading-tight'
             >
-              <span className='truncate font-bold'>GPU Shards OS</span>
-              <span className='truncate text-xs'>HAMi control panel</span>
+              <div className='flex aspect-square size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground'>
+                <Boxes className='size-4' />
+              </div>
+              <div className='grid flex-1 text-start text-sm leading-tight'>
+                <span className='truncate font-bold'>GPU Shards</span>
+                <span className='truncate text-xs'>Open Source</span>
+              </div>
             </Link>
             <ToggleSidebar />
           </div>

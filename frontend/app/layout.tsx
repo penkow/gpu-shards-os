@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
+import { cookies } from 'next/headers'
 import { Inter, Manrope } from 'next/font/google'
 import { Providers } from '@/components/providers'
 import { ShellTray } from '@/features/panel/components/shell-tray'
@@ -25,11 +26,14 @@ export const metadata: Metadata = {
   description: 'HAMi GPU-sharing control panel.',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const cookieStore = await cookies()
+  const sidebarDefaultOpen = cookieStore.get('sidebar_state')?.value !== 'false'
+
   return (
     <html
       lang="en"
@@ -39,7 +43,7 @@ export default function RootLayout({
       <body>
         <Providers>
           <Suspense fallback={null}>
-            <AppShell>{children}</AppShell>
+            <AppShell sidebarDefaultOpen={sidebarDefaultOpen}>{children}</AppShell>
           </Suspense>
           <ShellTray />
         </Providers>

@@ -77,7 +77,7 @@ export function ContainerDetailPage() {
         <TabsContent value="logs">
           <Card>
             <CardContent>
-              <LogsView cid={cid} name={name} mode="live" />
+              <LogsView cid={cid} name={name} mode="live" className="h-[65vh]" />
             </CardContent>
           </Card>
         </TabsContent>

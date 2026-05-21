@@ -3,6 +3,7 @@ fastapi>=0.110
 uvicorn[standard]>=0.27
 pydantic>=2.6
 docker>=7.0.0
+python-multipart>=0.0.9
 
 # Panel (NiceGUI UI)
 nicegui>=1.4.0

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import (
-    Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket,
-    WebSocketException, status,
+    Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile,
+    WebSocket, WebSocketException, status,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -16,9 +17,11 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from . import __version__
 from .config import settings
 from .docker_service import DockerError, DockerService
+from .editor_service import EditorService
 from .models import (
-    ContainerDetail, DeployRequest, DeployResponse, LogsResponse, OkResponse,
-    StateResponse,
+    ContainerDetail, DeployRequest, DeployResponse, EditorFile,
+    EditorFilesResponse, EditorRunRequest, EditorRunResponse, LogsResponse,
+    OkResponse, StateResponse,
 )
 from .shell_service import bridge_websocket
 
@@ -30,6 +33,7 @@ log = logging.getLogger("hami.backend")
 
 
 service = DockerService()
+editor = EditorService(service)
 
 
 @asynccontextmanager
@@ -196,6 +200,60 @@ async def restart(cid: str) -> OkResponse:
 )
 async def remove(cid: str) -> OkResponse:
     await service.remove(cid)
+    return OkResponse()
+
+
+# ---- editor --------------------------------------------------------------
+
+@app.post(
+    "/api/editor/runs",
+    response_model=EditorRunResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["editor"],
+    dependencies=[Depends(require_api_key)],
+)
+async def editor_run(req: EditorRunRequest) -> EditorRunResponse:
+    return await editor.start_run(
+        code=req.code,
+        use_gpu=req.use_gpu,
+        gpu_index=req.gpu_index,
+    )
+
+
+@app.get(
+    "/api/editor/files",
+    response_model=EditorFilesResponse,
+    tags=["editor"],
+    dependencies=[Depends(require_api_key)],
+)
+async def editor_list_files() -> EditorFilesResponse:
+    files = await asyncio.to_thread(editor.list_files)
+    return EditorFilesResponse(files=files)
+
+
+@app.post(
+    "/api/editor/files",
+    response_model=EditorFile,
+    status_code=status.HTTP_201_CREATED,
+    tags=["editor"],
+    dependencies=[Depends(require_api_key)],
+)
+async def editor_upload_file(file: UploadFile = File(...)) -> EditorFile:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="filename missing")
+    # Run the blocking chunked write on a worker thread so the event loop stays
+    # free to serve other requests (e.g. DELETE of a different file).
+    return await asyncio.to_thread(editor.save_file, file.filename, file.file)
+
+
+@app.delete(
+    "/api/editor/files/{name}",
+    response_model=OkResponse,
+    tags=["editor"],
+    dependencies=[Depends(require_api_key)],
+)
+async def editor_delete_file(name: str) -> OkResponse:
+    await asyncio.to_thread(editor.delete_file, name)
     return OkResponse()
 
 

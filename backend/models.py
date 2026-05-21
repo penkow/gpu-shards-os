@@ -75,3 +75,29 @@ class LogsResponse(BaseModel):
 class OkResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ok: bool = True
+
+
+class EditorRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=1, max_length=1_000_000)
+    use_gpu: bool = False
+    gpu_index: int = Field(default=0, ge=0)
+
+
+class EditorRunResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    run_id: str
+    container_id: str
+    container_name: str
+
+
+class EditorFile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    size: int
+    uploaded_at: str
+
+
+class EditorFilesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    files: list[EditorFile]

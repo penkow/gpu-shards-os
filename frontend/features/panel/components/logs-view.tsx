@@ -14,10 +14,12 @@ type Props = {
   name: string
   /** snapshot fetches once; live attaches an SSE stream. */
   mode?: 'snapshot' | 'live'
+  /** Show the status bar + pause/refresh/download controls (default true). */
+  showHeader?: boolean
   className?: string
 }
 
-export function LogsView({ cid, name, mode = 'live', className }: Props) {
+export function LogsView({ cid, name, mode = 'live', showHeader = true, className }: Props) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -133,41 +135,43 @@ export function LogsView({ cid, name, mode = 'live', className }: Props) {
   }
 
   return (
-    <div className={className}>
-      <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span className="truncate font-mono">{cid} · {status}</span>
-        <div className="flex items-center gap-1">
-          {mode === 'live' && (
+    <div className={`flex flex-col ${className ?? ''}`}>
+      {showHeader && (
+        <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span className="truncate font-mono">{cid} · {status}</span>
+          <div className="flex items-center gap-1">
+            {mode === 'live' && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title={paused ? 'Resume tail' : 'Pause tail'}
+                onClick={() => setPaused((p) => !p)}
+              >
+                {paused ? <Play /> : <Pause />}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon-sm"
-              title={paused ? 'Resume tail' : 'Pause tail'}
-              onClick={() => setPaused((p) => !p)}
+              title="Reload snapshot"
+              onClick={() => void loadSnapshot()}
             >
-              {paused ? <Play /> : <Pause />}
+              <RefreshCw />
             </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            title="Reload snapshot"
-            onClick={() => void loadSnapshot()}
-          >
-            <RefreshCw />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            title="Download buffered logs"
-            onClick={download}
-          >
-            <Download />
-          </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title="Download buffered logs"
+              onClick={download}
+            >
+              <Download />
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
       <div
         ref={viewportRef}
-        className="h-[65vh] w-full overflow-hidden rounded-md border bg-[#020617] p-2"
+        className="w-full flex-1 min-h-0 overflow-hidden rounded-md border bg-[#020617] p-2"
       />
     </div>
   )

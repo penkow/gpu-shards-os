@@ -235,6 +235,38 @@ class DockerService:
 
     # ---- mutations -------------------------------------------------------
 
+    def _run_container_sync(
+        self,
+        client: docker.DockerClient,
+        *,
+        image: str,
+        name: Optional[str] = None,
+        command: Optional[list[str]] = None,
+        environment: Optional[dict[str, str]] = None,
+        device_requests: Optional[list[DeviceRequest]] = None,
+        volumes: Optional[dict[str, dict[str, str]]] = None,
+        labels: Optional[dict[str, str]] = None,
+        auto_remove: bool = False,
+    ):
+        """Thin wrapper around `containers.run` so callers can share a single
+        Docker-SDK invocation surface. Returns the docker.models.containers.Container."""
+        kwargs: dict[str, Any] = {
+            "image": image,
+            "name": name,
+            "command": command,
+            "detach": True,
+            "labels": labels or {},
+        }
+        if environment:
+            kwargs["environment"] = environment
+        if device_requests:
+            kwargs["device_requests"] = device_requests
+        if volumes:
+            kwargs["volumes"] = volumes
+        if auto_remove:
+            kwargs["auto_remove"] = True
+        return client.containers.run(**kwargs)
+
     def _deploy_sync(
         self,
         client: docker.DockerClient,
@@ -254,11 +286,11 @@ class DockerService:
             "HAMI_GPU_INDEX": str(gpu_index),
         }
         cmd_list = command.split() if command.strip() else None
-        c = client.containers.run(
+        c = self._run_container_sync(
+            client,
             image=image,
             name=(name or None),
             command=cmd_list,
-            detach=True,
             environment=env,
             device_requests=[DeviceRequest(
                 device_ids=[str(gpu_index)],
@@ -282,6 +314,41 @@ class DockerService:
             return await asyncio.to_thread(
                 self._deploy_sync, client, image, name, gpu_index, memory, sm_limit, command,
             )
+        except ImageNotFound:
+            raise DockerError(f"Image not found: {image}", status_code=404)
+        except APIError as e:
+            raise DockerError(
+                getattr(e, "explanation", None) or str(e), status_code=400,
+            ) from e
+
+    async def run_container(
+        self,
+        *,
+        image: str,
+        name: Optional[str] = None,
+        command: Optional[list[str]] = None,
+        environment: Optional[dict[str, str]] = None,
+        device_requests: Optional[list[DeviceRequest]] = None,
+        volumes: Optional[dict[str, dict[str, str]]] = None,
+        labels: Optional[dict[str, str]] = None,
+        auto_remove: bool = False,
+    ) -> tuple[str, str]:
+        """Generic detached run. Returns (short_id, name)."""
+        client = await self.client()
+        try:
+            c = await asyncio.to_thread(
+                self._run_container_sync,
+                client,
+                image=image,
+                name=name,
+                command=command,
+                environment=environment,
+                device_requests=device_requests,
+                volumes=volumes,
+                labels=labels,
+                auto_remove=auto_remove,
+            )
+            return c.short_id, c.name
         except ImageNotFound:
             raise DockerError(f"Image not found: {image}", status_code=404)
         except APIError as e:
@@ -401,9 +468,8 @@ class DockerService:
                         continue
                     asyncio.run_coroutine_threadsafe(queue.put(chunk), loop)
             except NotFound:
-                asyncio.run_coroutine_threadsafe(
-                    queue.put(b"(container no longer exists)"), loop,
-                )
+                # Container exited and was auto-removed — let the stream end silently.
+                pass
             except Exception as e:  # pragma: no cover - best-effort error surfacing
                 msg = f"\n[log stream error: {e}]\n".encode()
                 asyncio.run_coroutine_threadsafe(queue.put(msg), loop)
