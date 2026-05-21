@@ -1,17 +1,38 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Boxes, Cpu, Package } from 'lucide-react'
+import { Boxes, Cpu, Package, Zap } from 'lucide-react'
 import { Main } from '@/components/layout/main'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { usePanelState, useGpuHistory } from '../hooks'
 import { GpuCard } from './gpu-card'
 import { GpuSparkline } from './gpu-sparkline'
+import { listEndpoints } from '@/features/endpoints/api'
+import type { EndpointSummary } from '@/features/endpoints/types'
 
 export function Overview() {
   const { data } = usePanelState()
   const history = useGpuHistory(60)
+  const [endpoints, setEndpoints] = useState<EndpointSummary[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    const refresh = () => {
+      void listEndpoints()
+        .then((r) => {
+          if (!cancelled) setEndpoints(r.endpoints)
+        })
+        .catch(() => {})
+    }
+    refresh()
+    const id = setInterval(refresh, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [])
 
   const gpus = data?.gpus ?? []
   const containers = data?.containers ?? []
@@ -35,7 +56,7 @@ export function Overview() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           label="GPUs"
           value={gpus.length}
@@ -48,6 +69,17 @@ export function Overview() {
           sub={containers.length ? `of ${containers.length} managed` : '0 managed'}
           icon={<Boxes className="text-muted-foreground" />}
           href="/containers"
+        />
+        <StatCard
+          label="Endpoints"
+          value={endpoints.length}
+          sub={
+            endpoints.length
+              ? `${endpoints.reduce((s, e) => s + e.invocation_count, 0).toLocaleString()} invocations`
+              : 'none deployed'
+          }
+          icon={<Zap className="text-muted-foreground" />}
+          href="/endpoints"
         />
         <StatCard
           label="Avg GPU util"

@@ -18,10 +18,12 @@ from . import __version__
 from .config import settings
 from .docker_service import DockerError, DockerService
 from .editor_service import EditorService
+from .endpoint_service import EndpointService
 from .models import (
     ContainerDetail, DeployRequest, DeployResponse, EditorFile,
-    EditorFilesResponse, EditorRunRequest, EditorRunResponse, LogsResponse,
-    OkResponse, StateResponse,
+    EditorFilesResponse, EditorRunRequest, EditorRunResponse,
+    EndpointCreateRequest, EndpointDetail, EndpointsListResponse,
+    InvokeResult, LogsResponse, OkResponse, StateResponse,
 )
 from .shell_service import bridge_websocket
 
@@ -34,6 +36,7 @@ log = logging.getLogger("hami.backend")
 
 service = DockerService()
 editor = EditorService(service)
+endpoints = EndpointService(service)
 
 
 @asynccontextmanager
@@ -255,6 +258,69 @@ async def editor_upload_file(file: UploadFile = File(...)) -> EditorFile:
 async def editor_delete_file(name: str) -> OkResponse:
     await asyncio.to_thread(editor.delete_file, name)
     return OkResponse()
+
+
+# ---- endpoints (FaaS) ----------------------------------------------------
+
+@app.post(
+    "/api/endpoints",
+    response_model=EndpointDetail,
+    status_code=status.HTTP_201_CREATED,
+    tags=["endpoints"],
+    dependencies=[Depends(require_api_key)],
+)
+async def create_endpoint(req: EndpointCreateRequest) -> EndpointDetail:
+    return await endpoints.create(
+        name=req.name,
+        code=req.code,
+        use_gpu=req.use_gpu,
+        gpu_index=req.gpu_index,
+        memory=req.memory,
+        sm_limit=req.sm_limit,
+    )
+
+
+@app.get(
+    "/api/endpoints",
+    response_model=EndpointsListResponse,
+    tags=["endpoints"],
+    dependencies=[Depends(require_api_key)],
+)
+async def list_endpoints() -> EndpointsListResponse:
+    return EndpointsListResponse(endpoints=await endpoints.list())
+
+
+@app.get(
+    "/api/endpoints/{name}",
+    response_model=EndpointDetail,
+    tags=["endpoints"],
+    dependencies=[Depends(require_api_key)],
+)
+async def get_endpoint(name: str) -> EndpointDetail:
+    return await endpoints.get(name)
+
+
+@app.delete(
+    "/api/endpoints/{name}",
+    response_model=OkResponse,
+    tags=["endpoints"],
+    dependencies=[Depends(require_api_key)],
+)
+async def delete_endpoint(name: str) -> OkResponse:
+    await endpoints.delete(name)
+    return OkResponse()
+
+
+# NOTE: demo-grade — no auth on this route by design. Anyone who can reach
+# the backend can invoke any deployed endpoint. Fine for a local demo, not
+# for anything else.
+@app.post("/api/fn/{name}/invoke", response_model=InvokeResult, tags=["endpoints"])
+async def invoke_endpoint(name: str, request: Request) -> InvokeResult:
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return await endpoints.invoke(name, body)
 
 
 @app.websocket("/api/containers/{cid}/shell")

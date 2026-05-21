@@ -385,6 +385,7 @@ class DockerService:
                 k, v = item.split("=", 1)
                 env[k] = v
         raw_mem = env.get("CUDA_DEVICE_MEMORY_LIMIT", "0")
+        labels = cfg.get("Labels") or {}
         return ContainerDetail(
             id=c.short_id,
             name=c.name,
@@ -402,6 +403,7 @@ class DockerService:
             exit_code=int(state.get("ExitCode", 0) or 0),
             restart_count=int(attrs.get("RestartCount", 0) or 0),
             restart_policy=((host_cfg.get("RestartPolicy") or {}).get("Name") or ""),
+            endpoint_name=labels.get(settings.endpoint_label_key, "") or "",
         )
 
     async def inspect(self, cid: str) -> ContainerDetail:

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import {
+  BookOpen,
   Brain,
   Copy,
   Cpu,
@@ -12,6 +13,7 @@ import {
   Image as ImageIcon,
   Loader2,
   Play,
+  Rocket,
   Upload,
   X,
   Zap,
@@ -42,6 +44,8 @@ import {
 } from '@/features/panel/api'
 import type { Gpu } from '@/features/panel/types'
 import { LogsView } from '@/features/panel/components/logs-view'
+import { DeployEndpointDialog } from './deploy-endpoint-dialog'
+import { TemplatesDialog } from './templates-dialog'
 
 const DEFAULT_PYTHON_CODE = `def handler(event, context):
     """User's lambda function handler.
@@ -91,8 +95,13 @@ export function EditorPage() {
   const [gpuIndex, setGpuIndex] = useState<number>(0)
   const [containerId, setContainerId] = useState<string>('')
   const [containerName, setContainerName] = useState<string>('')
+  const [deployOpen, setDeployOpen] = useState(false)
+  const [templatesOpen, setTemplatesOpen] = useState(false)
   const editorRef = useRef<any>(null)
   const artifactInputRef = useRef<HTMLInputElement>(null)
+
+  const currentCode = () =>
+    (editorRef.current?.getValue?.() as string | undefined) ?? code
 
   // Hydrate previously-uploaded files + the GPU list on mount.
   useEffect(() => {
@@ -293,6 +302,28 @@ export function EditorPage() {
           >
             {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
             <span>{isRunning ? 'Starting…' : 'Run'}</span>
+          </Button>
+
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setDeployOpen(true)}
+            className="flex items-center gap-1.5"
+            title="Promote this code to a callable HTTP endpoint"
+          >
+            <Rocket className="h-4 w-4" />
+            <span>Deploy as Endpoint</span>
+          </Button>
+
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setTemplatesOpen(true)}
+            className="flex items-center gap-1.5"
+            title="Start from a template"
+          >
+            <BookOpen className="h-4 w-4" />
+            <span>Templates</span>
           </Button>
 
           <Separator orientation="vertical" className="mx-1 h-6" />
@@ -550,6 +581,23 @@ export function EditorPage() {
         onChange={handleArtifactFileUpload}
         className="hidden"
         multiple
+      />
+
+      <DeployEndpointDialog
+        open={deployOpen}
+        onOpenChange={setDeployOpen}
+        code={currentCode()}
+        gpus={gpus}
+        defaultUseGpu={useGpu}
+        defaultGpuIndex={gpuIndex}
+      />
+      <TemplatesDialog
+        open={templatesOpen}
+        onOpenChange={setTemplatesOpen}
+        onPick={(tplCode) => {
+          setCode(tplCode)
+          editorRef.current?.setValue?.(tplCode)
+        }}
       />
     </div>
   )

@@ -28,6 +28,7 @@ export type ContainerDetail = ManagedContainer & {
   exit_code: number
   restart_count: number
   restart_policy: string
+  endpoint_name: string
 }
 
 export type PanelState = {

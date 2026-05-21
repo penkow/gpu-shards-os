@@ -26,6 +26,51 @@ Each released entry below corresponds to a git tag `v<MAJOR>.<MINOR>.<PATCH>`.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-21
+
+### Added
+
+#### Endpoints (Function-as-a-Service)
+
+- `POST /api/endpoints` — promote editor code (`handler(event, context)`) into a
+  persistent containerized HTTP endpoint. Container runs a stdlib `http.server`
+  that imports the user's `handler` and serves it at `/invoke`. Container port
+  `8080` is published to an ephemeral host port; the backend proxies to it.
+- `GET /api/endpoints`, `GET /api/endpoints/{name}`,
+  `DELETE /api/endpoints/{name}` — list / inspect / remove deployed endpoints.
+  Endpoints are label-discoverable (`gpu-shards.endpoint.name=<name>`) so they
+  survive backend restarts (invocation counts do not).
+- `POST /api/fn/{name}/invoke` — public, unauthenticated gateway that forwards
+  the request body to the endpoint container and returns the handler result.
+  Demo-grade only — no auth, no quotas, no queue.
+- New `EndpointService` with in-memory invocation counters + last-20 latency
+  samples for p50 display.
+- New env var `HAMI_DOCKER_HOST_IP` (default `127.0.0.1`) — the IP the backend
+  uses to reach published container ports. Set this to the GPU host's reachable
+  IP when running the backend against a remote daemon.
+
+#### Frontend
+
+- New `/endpoints` page with a polling table (name, status, GPU, invocation
+  count, last-invoked-relative) and a row-level Delete.
+- New `/endpoints/[name]` detail page: invocation stats, copyable invoke URL +
+  `curl` snippet, a Try-it panel (JSON body in / JSON result out with handler
+  + gateway durations), and a live container-logs pane via the existing
+  `LogsView`.
+- Editor toolbar gains **Deploy as Endpoint** (modal with name / GPU /
+  memory / SM%) and **Templates** (Hello GPU, Tiny LLM completion via
+  distilgpt2, Echo + sleep) buttons.
+- Overview dashboard gets a 5th KPI card: **Endpoints** (count + total
+  invocations).
+- Container detail page shows an **Endpoint: \<name\>** badge linking back to
+  `/endpoints/<name>` when the container is an endpoint worker.
+- Sidebar gains an **Endpoints** entry.
+
+### Changed
+
+- `ContainerDetail.endpoint_name` added (empty string when the container is not
+  an endpoint worker). Additive — old clients ignore it.
+
 ## [0.3.0] — 2026-05-21
 
 ### Added

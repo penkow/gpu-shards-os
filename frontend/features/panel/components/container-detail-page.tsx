@@ -2,7 +2,7 @@
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Zap } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -53,6 +53,14 @@ export function ContainerDetailPage() {
             >
               {status}
             </Badge>
+            {detail.data?.endpoint_name && (
+              <Link href={`/endpoints/${encodeURIComponent(detail.data.endpoint_name)}`}>
+                <Badge variant="outline" className="gap-1">
+                  <Zap className="h-3 w-3" />
+                  Endpoint: {detail.data.endpoint_name}
+                </Badge>
+              </Link>
+            )}
           </div>
           <p className="font-mono text-xs text-muted-foreground">{cid}</p>
         </div>

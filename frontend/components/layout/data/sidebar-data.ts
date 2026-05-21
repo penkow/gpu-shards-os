@@ -1,4 +1,4 @@
-import { Boxes, Code2, Cpu, LayoutDashboard, Package, Rocket } from 'lucide-react'
+import { Boxes, Code2, Cpu, LayoutDashboard, Package, Rocket, Zap } from 'lucide-react'
 import { type SidebarData } from '../types'
 
 export const sidebarData: SidebarData = {
@@ -12,6 +12,7 @@ export const sidebarData: SidebarData = {
         { title: 'Deploy', url: '/deploy', icon: Rocket },
         { title: 'Images', url: '/images', icon: Package },
         { title: 'Editor', url: '/editor', icon: Code2 },
+        { title: 'Endpoints', url: '/endpoints', icon: Zap },
       ],
     },
   ],

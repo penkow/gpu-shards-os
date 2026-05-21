@@ -30,11 +30,17 @@ class Settings:
     )
     log_level: str = field(default_factory=lambda: os.environ.get("HAMI_LOG_LEVEL", "INFO"))
 
+    # Address the FastAPI backend uses to reach published container ports.
+    # When the Docker daemon is remote (DOCKER_HOST=ssh://…), set this to the
+    # reachable IP of the GPU host (or set up an SSH -L tunnel and keep 127.0.0.1).
+    docker_host_ip: str = field(default_factory=lambda: os.environ.get("HAMI_DOCKER_HOST_IP", "127.0.0.1"))
+
     # Domain constants (intentionally not env-tunable — they're contract, not config)
     label_key: str = "hami-panel.managed"
     label_value: str = "true"
     editor_label_key: str = "gpu-shards.editor.run"
     editor_label_value: str = "true"
+    endpoint_label_key: str = "gpu-shards.endpoint.name"
     default_image: str = "hami-core-demo:latest"
     nvidia_probe_image: str = "nvidia/cuda:12.2.2-base-ubuntu22.04"
     libvgpu_path: str = "/libvgpu/build/libvgpu.so"
