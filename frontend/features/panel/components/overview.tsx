@@ -79,9 +79,9 @@ export function Overview() {
             No GPUs detected — probing through the Docker daemon…
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {gpus.map((gpu) => (
-              <div key={gpu.index} className="space-y-3">
+              <div key={gpu.index} className="space-y-4">
                 <GpuCard gpu={gpu} />
                 <GpuSparkline samples={history.get(gpu)} />
               </div>

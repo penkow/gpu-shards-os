@@ -26,6 +26,14 @@ Each released entry below corresponds to a git tag `v<MAJOR>.<MINOR>.<PATCH>`.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-05-21
+
+### Fixed
+
+- Overview page: GPU and utilization-sparkline cards now share the same grid
+  as the top KPI cards (`sm:grid-cols-2 lg:grid-cols-4`) and use a matching
+  `space-y-4` vertical gap, so columns and gutters line up across rows.
+
 ## [0.1.0] — 2026-05-21
 
 First tagged release of the unified panel + backend.
@@ -115,5 +123,6 @@ First tagged release of the unified panel + backend.
   `?token=` query params on WS/SSE — there is no UI for entering one.
 - Frontend build target: Next.js 16.2.6 (App Router) + React 19.
 
-[Unreleased]: https://github.com/penkow/gpu-shards-os/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/penkow/gpu-shards-os/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/penkow/gpu-shards-os/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/penkow/gpu-shards-os/releases/tag/v0.1.0
