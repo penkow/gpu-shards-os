@@ -26,6 +26,26 @@ Each released entry below corresponds to a git tag `v<MAJOR>.<MINOR>.<PATCH>`.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-05-21
+
+### Changed
+
+- Sidebar layout is now hard-coded to `floating` variant + `icon` collapsible
+  (Compact). The previous in-app selectors for sidebar style, layout density,
+  and text direction are gone.
+- Default theme switched from `system` to `light`. The header sun/moon
+  dropdown still toggles Light / Dark / System.
+
+### Removed
+
+- Theme Settings drawer (`ConfigDrawer` Sheet) — the gear button in the header
+  now opens a "to be implemented" toast instead of a selector panel.
+- `LayoutProvider` / `useLayout` and the `layout_collapsible` / `layout_variant`
+  cookies. Sidebar variant and collapsible mode are no longer user-configurable
+  at runtime.
+- Unused custom icons under `assets/custom/` (sidebar / layout / theme / dir
+  preview tiles that only fed the removed drawer).
+
 ## [0.1.1] — 2026-05-21
 
 ### Fixed
@@ -123,6 +143,7 @@ First tagged release of the unified panel + backend.
   `?token=` query params on WS/SSE — there is no UI for entering one.
 - Frontend build target: Next.js 16.2.6 (App Router) + React 19.
 
-[Unreleased]: https://github.com/penkow/gpu-shards-os/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/penkow/gpu-shards-os/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/penkow/gpu-shards-os/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/penkow/gpu-shards-os/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/penkow/gpu-shards-os/releases/tag/v0.1.0

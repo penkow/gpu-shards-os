@@ -1,7 +1,6 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { useLayout } from '@/context/layout-provider'
 import {
   Sidebar,
   SidebarContent,
@@ -16,7 +15,6 @@ import { sidebarData } from './data/sidebar-data'
 import { NavGroup } from './nav-group'
 
 export function AppSidebar() {
-  const { collapsible, variant } = useLayout()
   const state = useQuery<PanelState>({
     queryKey: ['panel', 'state'],
     queryFn: fetchState,
@@ -26,7 +24,7 @@ export function AppSidebar() {
     state?.connected && state.docker_target ? state.docker_target : 'disconnected'
 
   return (
-    <Sidebar collapsible={collapsible} variant={variant}>
+    <Sidebar collapsible="icon" variant="floating">
       <SidebarHeader>
         <AppTitle />
       </SidebarHeader>
