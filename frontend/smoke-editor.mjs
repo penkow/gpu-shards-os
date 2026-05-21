@@ -1,0 +1,10 @@
+import { chromium } from 'playwright'
+const browser = await chromium.launch()
+const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage()
+await page.goto('http://localhost:3000/editor', { waitUntil: 'domcontentloaded', timeout: 30000 })
+const monaco = await page.waitForSelector('.monaco-editor', { timeout: 30000 }).catch(() => null)
+await page.waitForSelector('.view-lines .view-line', { timeout: 15000 }).catch(() => null)
+const lines = await page.locator('.view-lines .view-line').allTextContents().catch(() => [])
+await page.screenshot({ path: '/tmp/editor-final.png' })
+console.log(JSON.stringify({ monacoFound: !!monaco, lineCount: lines.length, firstLine: lines[0] || null }))
+await browser.close()

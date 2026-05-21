@@ -9,7 +9,7 @@ import { Header } from '@/components/layout/header'
 import { ConfigDrawer } from '@/components/config-drawer'
 import { Search } from '@/components/search'
 import { ThemeSwitch } from '@/components/theme-switch'
-import { ConnectionStatus } from '@/features/panel/components/connection-status'
+import { ConnectingOverlay } from '@/features/panel/components/connecting-overlay'
 import { ContainerEventsListener } from '@/features/panel/components/container-events-listener'
 import { DisconnectedBanner } from '@/features/panel/components/disconnected-banner'
 import { SkipToMain } from '@/components/skip-to-main'
@@ -32,11 +32,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Search className="me-auto" />
             <ThemeSwitch />
             <ConfigDrawer />
-            <ConnectionStatus />
           </Header>
           <ContainerEventsListener />
           <DisconnectedBanner />
           {children}
+          <ConnectingOverlay />
         </SidebarInset>
       </SidebarProvider>
     </SearchProvider>
