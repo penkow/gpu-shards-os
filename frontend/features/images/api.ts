@@ -1,5 +1,11 @@
 import { getBackendConfig } from '@/lib/backend-config'
-import type { BuildImageRequest, BuildStatus, BuildsListResponse } from './types'
+import type {
+  BuildImageRequest,
+  BuildStatus,
+  BuildsListResponse,
+  ImageInspectResponse,
+  ImagesResponse,
+} from './types'
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const { url, apiKey } = getBackendConfig()
@@ -47,4 +53,24 @@ export function buildStreamUrl(buildId: string): string {
   const path = `/api/images/builds/${encodeURIComponent(buildId)}/stream`
   const qs = apiKey ? `?token=${encodeURIComponent(apiKey)}` : ''
   return `${base}${path}${qs}`
+}
+
+// Image refs (tags / short ids) can contain "/" and ":" — emit them verbatim so
+// FastAPI's `{ref:path}` converter sees the literal value. Encoded slashes break it.
+function encodeRef(ref: string): string {
+  return encodeURI(ref)
+}
+
+export function listImages(): Promise<ImagesResponse> {
+  return request<ImagesResponse>('/api/images')
+}
+
+export function inspectImage(ref: string): Promise<ImageInspectResponse> {
+  return request<ImageInspectResponse>(`/api/images/${encodeRef(ref)}/inspect`)
+}
+
+export function removeImage(ref: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/images/${encodeRef(ref)}`, {
+    method: 'DELETE',
+  })
 }

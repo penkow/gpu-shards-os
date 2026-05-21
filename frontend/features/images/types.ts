@@ -16,3 +16,20 @@ export type BuildStatus = {
 export type BuildsListResponse = {
   builds: BuildStatus[]
 }
+
+export type ImageInfo = {
+  id: string
+  tags: string[]
+  size_bytes: number
+  created_at: string
+  architecture: string
+  used_by: string[]
+}
+
+export type ImagesResponse = {
+  images: ImageInfo[]
+}
+
+export type ImageInspectResponse = {
+  data: Record<string, unknown>
+}

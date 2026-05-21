@@ -197,3 +197,25 @@ class BuildStatus(BaseModel):
 class BuildsListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     builds: list[BuildStatus]
+
+
+class ImageInfo(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str  # short id (12 hex chars), no "sha256:" prefix
+    tags: list[str]
+    size_bytes: int = 0
+    created_at: str = ""
+    architecture: str = ""
+    # Container short_ids that currently reference this image (running or stopped).
+    used_by: list[str] = Field(default_factory=list)
+
+
+class ImagesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    images: list[ImageInfo]
+
+
+class ImageInspect(BaseModel):
+    """Raw passthrough of docker.Image.attrs — schema is whatever Docker returns."""
+    model_config = ConfigDict(extra="allow")
+    data: dict[str, "object"] = Field(default_factory=dict)

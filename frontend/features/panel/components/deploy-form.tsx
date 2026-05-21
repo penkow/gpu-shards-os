@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Rocket } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -27,11 +28,22 @@ type Props = {
 }
 
 export function DeployForm({ gpus, images, onDeployed }: Props) {
+  const search = useSearchParams()
   const imageOptions = Array.from(
     new Set([...SUGGESTED_IMAGES, ...images])
   )
 
   const [image, setImage] = useState(imageOptions[0] ?? DEFAULT_IMAGE)
+
+  // Honor /deploy?image=<tag> as a one-time pre-selection, as soon as the
+  // requested tag is present in the available options.
+  useEffect(() => {
+    const preset = search.get('image')
+    if (preset && imageOptions.includes(preset) && preset !== image) {
+      setImage(preset)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, images])
   const [name, setName] = useState('')
   const [gpuIndex, setGpuIndex] = useState<string>('')
   const [memory, setMemory] = useState('4g')

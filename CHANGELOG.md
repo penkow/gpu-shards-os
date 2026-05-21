@@ -26,6 +26,71 @@ Each released entry below corresponds to a git tag `v<MAJOR>.<MINOR>.<PATCH>`.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-05-21
+
+### Added
+
+#### `/images` page becomes a real page
+
+- New `GET /api/images` returns `ImagesResponse {images: ImageInfo[]}` —
+  each `ImageInfo` carries `{id, tags, size_bytes, created_at, architecture,
+  used_by}`. `used_by` is computed server-side by cross-referencing each
+  image's `RepoTags` against the managed-container list. Dangling images
+  (no tags) are filtered out.
+- `GET /api/images/{ref:path}/inspect` returns the raw `docker inspect`
+  payload (`ImageInspect.data`).
+- `DELETE /api/images/{ref:path}` removes the image — blocked with 409
+  when any managed container still references it (no `?force=true` in
+  v0.6.0).
+- `StateResponse.images: list[str]` is unchanged for backwards
+  compatibility; only the new `/images` page uses the rich payload.
+
+#### Frontend
+
+- New `frontend/features/images/components/images-page.tsx` replaces the
+  flat list. Table with columns Tag(s) / ID / Size / Age / Used by /
+  Actions. Filter input narrows by tag or id. Polls every 5s.
+- Per-row actions: **Deploy** (routes to `/deploy?image=<tag>` and
+  pre-selects), **Use in editor** (sets a one-shot `gpu-shards.preferred-
+  image` localStorage key, navigates to `/editor`; the Deploy-as-Endpoint
+  dialog reads + clears it on open), **Inspect** (modal with raw JSON +
+  copy), **Remove** (disabled with tooltip listing the using containers
+  when `used_by.length > 0`; otherwise a confirm dialog).
+- **Recent builds** card lists the last 10 in-memory builds with
+  status / tag / started / duration, and a Logs button that opens a new
+  `BuildLogsDialog` replaying the SSE stream from
+  `/api/images/builds/{id}/stream`.
+- **Templates** button opens `DockerfileTemplatesDialog` with 4 curated
+  starting points (Diffusers + transformers, Whisper ASR, vLLM server,
+  ComfyUI). Picking one opens `BuildImageDialog` prefilled with the
+  suggested tag and Dockerfile.
+- `BuildImageDialog` now accepts optional `initialTag` / `initialDockerfile`
+  props (used by the templates dialog). Re-opens reset to the seed each
+  time, matching the existing reset-on-open behavior.
+- `/deploy` form honors `?image=<tag>` query and pre-selects.
+- Old `frontend/features/panel/components/images-page.tsx` is now a
+  re-export shim of the new feature-folder component so any stray import
+  keeps working.
+
+### Changed
+
+- **`BuildImageDialog` is now phase-gated.** Edit phase shows only the tag
+  input + Dockerfile editor (taller, `h-80`); build phase shows only the
+  status pill + xterm (`h-96`). Failed builds offer **Edit Dockerfile** to
+  go back without losing the Dockerfile in progress.
+- **Multi-session shell sidebar is fixed-width** (`w-56`) instead of a
+  resizable panel — fits the session label cleanly at any viewport size.
+- **Container detail page uses editor-style margins** (`h-svh` + `p-4`,
+  no `<Card>` wrappers around tab content) so the Shell / Logs panes fill
+  the viewport instead of being capped at `max-w-7xl`.
+
+### Removed
+
+- **`ShellTray` floating chips** (the bottom-right "Connected" pills). The
+  global tray now exists only as a hidden parking host for terminal DOMs
+  across route changes — session switching lives entirely inside the
+  per-container `ShellPane`'s left rail.
+
 ## [0.5.0] — 2026-05-21
 
 ### Added

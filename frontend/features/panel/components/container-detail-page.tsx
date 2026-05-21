@@ -5,9 +5,7 @@ import Link from 'next/link'
 import { ArrowLeft, Loader2, Zap } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Main } from '@/components/layout/main'
 import { useContainerFromState, useContainerInspect } from '../hooks'
 import { ContainerActions } from './container-actions'
 import { LogsView } from './logs-view'
@@ -36,7 +34,7 @@ export function ContainerDetailPage() {
   }
 
   return (
-    <Main className="space-y-5">
+    <div className="flex h-svh flex-col gap-3 overflow-hidden p-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1">
           <Button variant="ghost" size="sm" asChild className="-ms-2 mb-1">
@@ -73,8 +71,8 @@ export function ContainerDetailPage() {
         )}
       </div>
 
-      <Tabs value={initialTab} onValueChange={setTab} className="space-y-3">
-        <TabsList>
+      <Tabs value={initialTab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-3">
+        <TabsList className="self-start">
           <TabsTrigger value="logs">Logs</TabsTrigger>
           <TabsTrigger value="shell" disabled={status !== 'running'}>
             Shell
@@ -82,48 +80,36 @@ export function ContainerDetailPage() {
           <TabsTrigger value="metadata">Metadata</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="logs">
-          <Card>
-            <CardContent>
-              <LogsView cid={cid} name={name} mode="live" className="h-[65vh]" />
-            </CardContent>
-          </Card>
+        <TabsContent value="logs" className="min-h-0 flex-1">
+          <LogsView cid={cid} name={name} mode="live" className="h-full" />
         </TabsContent>
 
-        <TabsContent value="shell">
-          <Card>
-            <CardContent>
-              <ShellPane
-                cid={cid}
-                name={name}
-                disabled={status !== 'running'}
-                disabledMessage={`Container is ${status}; start it to attach a shell.`}
-              />
-            </CardContent>
-          </Card>
+        <TabsContent value="shell" className="min-h-0 flex-1">
+          <ShellPane
+            cid={cid}
+            name={name}
+            disabled={status !== 'running'}
+            disabledMessage={`Container is ${status}; start it to attach a shell.`}
+          />
         </TabsContent>
 
-        <TabsContent value="metadata">
-          <Card>
-            <CardContent className="space-y-4">
-              {detail.isLoading && !detail.data ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="animate-spin" /> Loading inspect…
-                </div>
-              ) : detail.error ? (
-                <p className="text-sm text-destructive">
-                  {detail.error instanceof Error
-                    ? detail.error.message
-                    : 'Inspect failed'}
-                </p>
-              ) : detail.data ? (
-                <MetadataView data={detail.data} />
-              ) : null}
-            </CardContent>
-          </Card>
+        <TabsContent value="metadata" className="min-h-0 flex-1 overflow-y-auto">
+          {detail.isLoading && !detail.data ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="animate-spin" /> Loading inspect…
+            </div>
+          ) : detail.error ? (
+            <p className="text-sm text-destructive">
+              {detail.error instanceof Error
+                ? detail.error.message
+                : 'Inspect failed'}
+            </p>
+          ) : detail.data ? (
+            <MetadataView data={detail.data} />
+          ) : null}
         </TabsContent>
       </Tabs>
-    </Main>
+    </div>
   )
 }
 

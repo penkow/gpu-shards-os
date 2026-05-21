@@ -54,7 +54,7 @@ export function ShellView({ sessionId, className }: Props) {
   const detail = session?.statusDetail ?? ''
 
   return (
-    <div className={className}>
+    <div className={`flex h-full min-h-0 flex-col ${className ?? ''}`}>
       <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
         <span className="font-mono">{session?.label ?? sessionId}</span>
         <span>· {status}</span>
@@ -62,7 +62,7 @@ export function ShellView({ sessionId, className }: Props) {
       </div>
       <div
         ref={viewportRef}
-        className="h-[65vh] w-full overflow-hidden rounded-md border bg-[#020617] p-2"
+        className="min-h-0 w-full flex-1 overflow-hidden rounded-md border bg-[#020617] p-2"
       />
     </div>
   )

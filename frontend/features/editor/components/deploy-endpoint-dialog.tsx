@@ -67,9 +67,25 @@ export function DeployEndpointDialog({
       setGpuIndex(defaultGpuIndex)
       setMemory('4g')
       setSmLimit(50)
-      setImageChoice(IMAGE_DEFAULT_SENTINEL)
+      // Honor a one-shot "preferred image" hint dropped by /images "Use in editor".
+      let preferred = ''
+      try {
+        preferred = localStorage.getItem('gpu-shards.preferred-image') ?? ''
+      } catch {
+        /* localStorage unavailable */
+      }
+      if (preferred && images.includes(preferred)) {
+        setImageChoice(preferred)
+      } else {
+        setImageChoice(IMAGE_DEFAULT_SENTINEL)
+      }
+      if (preferred) {
+        try {
+          localStorage.removeItem('gpu-shards.preferred-image')
+        } catch {}
+      }
     }
-  }, [open, defaultUseGpu, defaultGpuIndex])
+  }, [open, defaultUseGpu, defaultGpuIndex, images])
 
   const nameValid = NAME_RE.test(name)
 

@@ -25,6 +25,7 @@ from .models import (
     ContainerDetail, DeployRequest, DeployResponse, EditorFile,
     EditorFilesResponse, EditorRunRequest, EditorRunResponse,
     EndpointCreateRequest, EndpointDetail, EndpointsListResponse,
+    ImageInspect, ImagesResponse,
     InvokeResult, LogsResponse, OkResponse, RequestTemplate,
     RequestTemplateUpsert, StateResponse, TemplatesResponse,
 )
@@ -313,6 +314,40 @@ async def stream_image_build(build_id: str, token: Optional[str] = Query(default
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---- image lifecycle -----------------------------------------------------
+
+@app.get(
+    "/api/images",
+    response_model=ImagesResponse,
+    tags=["images"],
+    dependencies=[Depends(require_api_key)],
+)
+async def list_images() -> ImagesResponse:
+    return ImagesResponse(images=await service.list_images_detailed())
+
+
+@app.get(
+    "/api/images/{ref:path}/inspect",
+    response_model=ImageInspect,
+    tags=["images"],
+    dependencies=[Depends(require_api_key)],
+)
+async def inspect_image(ref: str) -> ImageInspect:
+    data = await service.inspect_image(ref)
+    return ImageInspect(data=data)
+
+
+@app.delete(
+    "/api/images/{ref:path}",
+    response_model=OkResponse,
+    tags=["images"],
+    dependencies=[Depends(require_api_key)],
+)
+async def remove_image(ref: str) -> OkResponse:
+    await service.remove_image(ref)
+    return OkResponse()
 
 
 # ---- endpoints (FaaS) ----------------------------------------------------

@@ -20,7 +20,8 @@ from docker.types import DeviceRequest
 
 from .config import settings
 from .models import (
-    ContainerDetail, DeployResponse, Gpu, ManagedContainer, StateResponse,
+    ContainerDetail, DeployResponse, Gpu, ImageInfo, ManagedContainer,
+    StateResponse,
 )
 
 log = logging.getLogger(__name__)
@@ -164,6 +165,67 @@ class DockerService:
             log.warning("image list failed: %s", e)
         return sorted(tags)
 
+    @staticmethod
+    def _short_image_id(raw: str) -> str:
+        if not raw:
+            return ""
+        s = raw.split(":", 1)[1] if raw.startswith("sha256:") else raw
+        return s[:12]
+
+    def _list_images_detailed_sync(
+        self, client: docker.DockerClient, managed: list[ManagedContainer],
+    ) -> list[ImageInfo]:
+        # Pre-bucket managed container short_ids by the image they reference.
+        by_image: dict[str, list[str]] = {}
+        for c in managed:
+            by_image.setdefault(c.image, []).append(c.id)
+
+        out: list[ImageInfo] = []
+        try:
+            for img in client.images.list():
+                attrs = img.attrs or {}
+                tags = [t for t in (img.tags or []) if t and not t.startswith("<none>")]
+                if not tags:
+                    # Dangling layers — skip for the demo; they clutter the list.
+                    continue
+                used: list[str] = []
+                for t in tags:
+                    used.extend(by_image.get(t, []))
+                # De-dupe while preserving order.
+                seen: set[str] = set()
+                used_unique = [u for u in used if not (u in seen or seen.add(u))]
+                out.append(ImageInfo(
+                    id=self._short_image_id(attrs.get("Id") or img.id or ""),
+                    tags=tags,
+                    size_bytes=int(attrs.get("Size", 0) or 0),
+                    created_at=str(attrs.get("Created", "") or ""),
+                    architecture=str(attrs.get("Architecture", "") or ""),
+                    used_by=used_unique,
+                ))
+        except Exception as e:
+            log.warning("image detailed list failed: %s", e)
+        out.sort(key=lambda i: (i.tags[0] if i.tags else i.id))
+        return out
+
+    def _inspect_image_sync(self, client: docker.DockerClient, ref: str) -> dict:
+        try:
+            return dict(client.images.get(ref).attrs or {})
+        except ImageNotFound:
+            raise DockerError(f"image not found: {ref}", status_code=404)
+        except APIError as e:
+            raise DockerError(getattr(e, "explanation", None) or str(e), status_code=400) from e
+
+    def _remove_image_sync(self, client: docker.DockerClient, ref: str) -> None:
+        try:
+            client.images.remove(ref)
+        except ImageNotFound:
+            raise DockerError(f"image not found: {ref}", status_code=404)
+        except APIError as e:
+            # Docker returns 409 Conflict when an image is still referenced by a container.
+            msg = getattr(e, "explanation", None) or str(e)
+            status_code = 409 if (getattr(e, "status_code", None) == 409) else 400
+            raise DockerError(msg, status_code=status_code) from e
+
     def _list_managed_sync(self, client: docker.DockerClient) -> list[ManagedContainer]:
         cs = client.containers.list(
             all=True,
@@ -232,6 +294,36 @@ class DockerService:
                 gpus=[], containers=[], images=[],
             )
         return await asyncio.to_thread(self._state_sync, client)
+
+    # ---- images ----------------------------------------------------------
+
+    async def list_images_detailed(self) -> list[ImageInfo]:
+        client = await self.client()
+
+        def _do() -> list[ImageInfo]:
+            managed = self._list_managed_sync(client)
+            return self._list_images_detailed_sync(client, managed)
+
+        return await asyncio.to_thread(_do)
+
+    async def inspect_image(self, ref: str) -> dict:
+        client = await self.client()
+        return await asyncio.to_thread(self._inspect_image_sync, client, ref)
+
+    async def remove_image(self, ref: str) -> None:
+        client = await self.client()
+
+        def _do() -> None:
+            managed = self._list_managed_sync(client)
+            for c in managed:
+                if c.image == ref:
+                    raise DockerError(
+                        f"image is in use by container {c.name} ({c.id}); stop+remove it first",
+                        status_code=409,
+                    )
+            self._remove_image_sync(client, ref)
+
+        await asyncio.to_thread(_do)
 
     # ---- mutations -------------------------------------------------------
 
