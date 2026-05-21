@@ -107,7 +107,7 @@ function StatCard({
   href?: string
 }) {
   const inner = (
-    <Card className="h-full">
+    <Card className="h-full w-full">
       <CardContent className="space-y-1">
         <div className="flex items-start justify-between">
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
