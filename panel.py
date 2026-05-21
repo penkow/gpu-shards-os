@@ -1,36 +1,42 @@
 #!/usr/bin/env python3
-"""HAMi Control Panel — GPU-shared Docker container manager.
+"""HAMi Control Panel — NiceGUI UI talking to the FastAPI backend.
 
-Run with:
-    DOCKER_HOST=ssh://user@gpu-host python panel.py
-or with a configured docker context active:
-    docker context use gpu-host && python panel.py
+Backend URL is configured via env (defaults to http://localhost:8000):
+
+    HAMI_BACKEND_URL=http://gpu-host:8000 \\
+    HAMI_API_KEY=secret \\
+    python panel.py
 """
 
+from __future__ import annotations
+
+import asyncio
+import html
 import json
+import logging
 import os
-import re
-import subprocess
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
-import docker
-from docker.errors import APIError, DockerException, ImageNotFound, NotFound
-from docker.types import DeviceRequest
-from nicegui import run, ui
+import httpx
+import websockets
+from nicegui import ui
 
 
-LABEL_KEY = "hami-panel.managed"
-LABEL_VALUE = "true"
+BACKEND_URL = os.environ.get("HAMI_BACKEND_URL", "http://localhost:8000").rstrip("/")
+API_KEY = os.environ.get("HAMI_API_KEY", "")
+PANEL_PORT = int(os.environ.get("HAMI_PANEL_PORT", "8080"))
 DEFAULT_IMAGE = "hami-core-demo:latest"
-NVIDIA_PROBE_IMAGE = "nvidia/cuda:12.2.2-base-ubuntu22.04"
-LIBVGPU_PATH = "/libvgpu/build/libvgpu.so"
 REFRESH_SECONDS = 5.0
+REQUEST_TIMEOUT = 30.0
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
+log = logging.getLogger("hami.panel")
 
 
 # ----------------------------------------------------------------------
-# Data
+# Local view-state cache (mirror of last backend response)
 # ----------------------------------------------------------------------
 
 @dataclass
@@ -40,7 +46,7 @@ class Gpu:
     memory_total_mb: int
     memory_used_mb: int
     utilization_pct: int
-    allocated_mb: int = 0  # sum of memory limits across managed containers on this GPU
+    allocated_mb: int = 0
 
 
 @dataclass
@@ -57,188 +63,150 @@ class ManagedContainer:
 
 @dataclass
 class State:
-    client: Optional[docker.DockerClient] = None
+    connected: bool = False
+    docker_target: str = ""
+    error: str = ""
     gpus: list[Gpu] = field(default_factory=list)
     containers: list[ManagedContainer] = field(default_factory=list)
-    error: str = ""
-    docker_target: str = ""
+    images: list[str] = field(default_factory=list)
 
 
 state = State()
 
 
 # ----------------------------------------------------------------------
-# Backend helpers
+# Backend client
 # ----------------------------------------------------------------------
 
-def memory_to_mb(s: str) -> int:
-    if not s:
-        return 0
-    m = re.match(r"^(\d+(?:\.\d+)?)\s*([kmgtKMGT]?)i?[bB]?$", s.strip())
-    if not m:
-        return 0
-    val = float(m.group(1))
-    unit = (m.group(2) or "").lower()
-    mult = {
-        "": 1 / (1024 * 1024),
-        "k": 1 / 1024,
-        "m": 1,
-        "g": 1024,
-        "t": 1024 * 1024,
-    }[unit]
-    return int(val * mult)
+def _headers() -> dict[str, str]:
+    return {"X-API-Key": API_KEY} if API_KEY else {}
 
 
-def docker_host_from_context() -> Optional[str]:
-    """If DOCKER_HOST is unset, derive endpoint from the active docker context."""
-    if os.environ.get("DOCKER_HOST"):
-        return None
-    try:
-        cfg = json.loads((Path.home() / ".docker" / "config.json").read_text())
-        ctx_name = cfg.get("currentContext", "default")
-        if ctx_name in ("default", ""):
-            return None
-        out = subprocess.check_output(
-            ["docker", "context", "inspect", ctx_name,
-             "--format", "{{.Endpoints.docker.Host}}"],
-            text=True, stderr=subprocess.DEVNULL,
-        ).strip()
-        return out or None
-    except Exception:
-        return None
+def _ws_url(path: str) -> str:
+    parsed = urlparse(BACKEND_URL)
+    scheme = "wss" if parsed.scheme == "https" else "ws"
+    netloc = parsed.netloc or parsed.path
+    return f"{scheme}://{netloc}{path}"
 
 
-def connect_docker() -> Optional[docker.DockerClient]:
-    host = docker_host_from_context()
-    try:
-        client = docker.DockerClient(base_url=host) if host else docker.from_env()
-        client.ping()
-        return client
-    except DockerException:
-        return None
+class BackendClient:
+    """Thin async wrapper around the backend REST API."""
 
-
-def detect_gpus(client) -> list[Gpu]:
-    """Probe GPUs by running nvidia-smi inside a throwaway container on the daemon."""
-    try:
-        out = client.containers.run(
-            image=NVIDIA_PROBE_IMAGE,
-            command=[
-                "nvidia-smi",
-                "--query-gpu=index,name,memory.total,memory.used,utilization.gpu",
-                "--format=csv,noheader,nounits",
-            ],
-            remove=True,
-            device_requests=[DeviceRequest(count=-1, capabilities=[["gpu"]])],
+    def __init__(self, base_url: str) -> None:
+        self._base = base_url
+        self._client = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=REQUEST_TIMEOUT,
+            headers=_headers(),
         )
-        text = out.decode() if isinstance(out, bytes) else str(out)
-        gpus = []
-        for line in text.strip().splitlines():
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 5:
-                gpus.append(Gpu(
-                    index=int(parts[0]),
-                    name=parts[1],
-                    memory_total_mb=int(parts[2]),
-                    memory_used_mb=int(parts[3]),
-                    utilization_pct=int(parts[4]),
-                ))
-        return gpus
-    except Exception as e:
-        state.error = f"GPU probe failed: {e}"
-        return []
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def get_state(self) -> dict:
+        r = await self._client.get("/api/state")
+        r.raise_for_status()
+        return r.json()
+
+    async def deploy(self, payload: dict) -> dict:
+        r = await self._client.post("/api/deploy", json=payload)
+        if r.status_code >= 400:
+            detail = _detail(r)
+            raise BackendError(detail, status_code=r.status_code)
+        return r.json()
+
+    async def get_logs(self, cid: str) -> str:
+        r = await self._client.get(f"/api/containers/{cid}/logs")
+        r.raise_for_status()
+        return r.json().get("logs", "")
+
+    async def stop(self, cid: str) -> None:
+        r = await self._client.post(f"/api/containers/{cid}/stop")
+        r.raise_for_status()
+
+    async def remove(self, cid: str) -> None:
+        r = await self._client.delete(f"/api/containers/{cid}")
+        r.raise_for_status()
 
 
-def list_managed(client) -> list[ManagedContainer]:
-    cs = client.containers.list(all=True, filters={"label": f"{LABEL_KEY}={LABEL_VALUE}"})
-    result = []
-    for c in cs:
-        env = {}
-        for item in (c.attrs.get("Config", {}).get("Env") or []):
-            if "=" in item:
-                k, v = item.split("=", 1)
-                env[k] = v
-        raw = env.get("CUDA_DEVICE_MEMORY_LIMIT", "0")
-        result.append(ManagedContainer(
-            id=c.short_id,
-            name=c.name,
-            status=c.status,
-            image=(c.image.tags[0] if c.image.tags else c.image.short_id) or "",
-            gpu_index=env.get("HAMI_GPU_INDEX") or env.get("NVIDIA_VISIBLE_DEVICES", "?"),
-            memory_limit_mb=memory_to_mb(raw),
-            memory_limit_raw=raw,
-            sm_limit=env.get("CUDA_DEVICE_SM_LIMIT", "-"),
-        ))
-    return result
+class BackendError(Exception):
+    def __init__(self, message: str, status_code: int = 500) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
-def refresh_state():
-    state.error = ""
-    state.client = connect_docker()
-    if not state.client:
-        state.gpus = []
-        state.containers = []
-        state.docker_target = ""
-        state.error = "Docker daemon unreachable. Set DOCKER_HOST or `docker context use <name>`."
-        return
+def _detail(resp: httpx.Response) -> str:
     try:
-        state.docker_target = state.client.info().get("Name", "unknown")
+        body = resp.json()
+        if isinstance(body, dict):
+            return str(body.get("detail") or body)
+        return str(body)
     except Exception:
-        state.docker_target = "unknown"
-    state.gpus = detect_gpus(state.client)
-    state.containers = list_managed(state.client)
-    # accumulate allocated memory per GPU from running managed containers
-    by_idx = {g.index: g for g in state.gpus}
-    for g in state.gpus:
-        g.allocated_mb = 0
-    for c in state.containers:
-        if c.status != "running":
-            continue
+        return resp.text or f"HTTP {resp.status_code}"
+
+
+client = BackendClient(BACKEND_URL)
+
+
+# ----------------------------------------------------------------------
+# WebSocket shell client
+# ----------------------------------------------------------------------
+
+class ShellWS:
+    """xterm <-> backend PTY over websockets."""
+
+    def __init__(self) -> None:
+        self._ws: Optional[websockets.WebSocketClientProtocol] = None
+        self._reader: Optional[asyncio.Task] = None
+        self._closed = False
+
+    async def open(self, cid: str, on_bytes) -> None:
+        path = f"/api/containers/{cid}/shell"
+        if API_KEY:
+            path = f"{path}?token={API_KEY}"
+        url = _ws_url(path)
+        self._ws = await websockets.connect(url, max_size=None)
+        self._closed = False
+
+        async def pump() -> None:
+            try:
+                async for msg in self._ws:                              # type: ignore[union-attr]
+                    if isinstance(msg, (bytes, bytearray)):
+                        on_bytes(bytes(msg))
+                    elif isinstance(msg, str):
+                        on_bytes(msg.encode("utf-8", errors="replace"))
+            except Exception as e:
+                log.debug("shell ws reader ended: %s", e)
+
+        self._reader = asyncio.create_task(pump())
+
+    async def send_input(self, data: str) -> None:
+        if not self._ws or self._closed:
+            return
         try:
-            idx = int(c.gpu_index)
-        except (ValueError, TypeError):
-            continue
-        if idx in by_idx:
-            by_idx[idx].allocated_mb += c.memory_limit_mb
+            await self._ws.send(json.dumps({"input": data}))
+        except Exception:
+            pass
 
+    async def send_resize(self, rows: int, cols: int) -> None:
+        if not self._ws or self._closed:
+            return
+        try:
+            await self._ws.send(json.dumps({"resize": {"rows": int(rows), "cols": int(cols)}}))
+        except Exception:
+            pass
 
-def deploy(image, name, gpu_index, memory, sm_limit, command):
-    if not state.client:
-        raise RuntimeError("Docker not connected")
-    env = {
-        "NVIDIA_VISIBLE_DEVICES": str(gpu_index),
-        "NVIDIA_DRIVER_CAPABILITIES": "compute,utility",
-        "LD_PRELOAD": LIBVGPU_PATH,
-        "CUDA_DEVICE_MEMORY_LIMIT": memory,
-        "CUDA_DEVICE_SM_LIMIT": str(sm_limit),
-        "HAMI_GPU_INDEX": str(gpu_index),
-    }
-    return state.client.containers.run(
-        image=image,
-        name=(name or None),
-        command=(command.split() if command.strip() else None),
-        detach=True,
-        environment=env,
-        device_requests=[DeviceRequest(
-            device_ids=[str(gpu_index)],
-            capabilities=[["gpu"]],
-        )],
-        labels={LABEL_KEY: LABEL_VALUE},
-    )
-
-
-def stop_container(cid):
-    try:
-        state.client.containers.get(cid).stop(timeout=10)
-    except (NotFound, AttributeError):
-        pass
-
-
-def remove_container(cid):
-    try:
-        state.client.containers.get(cid).remove(force=True)
-    except (NotFound, AttributeError):
-        pass
+    async def close(self) -> None:
+        self._closed = True
+        if self._reader:
+            self._reader.cancel()
+            self._reader = None
+        if self._ws:
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
+            self._ws = None
 
 
 # ----------------------------------------------------------------------
@@ -286,6 +254,28 @@ body, .q-page { background: #0a0e1f !important; color: #e2e8f0; }
 """
 
 
+def _apply_state(payload: dict) -> None:
+    """Replace local cache from a /api/state response."""
+    state.connected = bool(payload.get("connected"))
+    state.docker_target = payload.get("docker_target", "")
+    state.error = payload.get("error", "")
+    state.gpus = [Gpu(**g) for g in payload.get("gpus", [])]
+    state.containers = [ManagedContainer(**c) for c in payload.get("containers", [])]
+    state.images = list(payload.get("images", []))
+
+
+async def _fetch_state() -> None:
+    try:
+        payload = await client.get_state()
+        _apply_state(payload)
+    except httpx.HTTPError as e:
+        state.connected = False
+        state.docker_target = ""
+        state.gpus = []
+        state.containers = []
+        state.error = f"Backend unreachable at {BACKEND_URL}: {e}"
+
+
 @ui.page("/")
 def page():
     ui.dark_mode().enable()
@@ -305,21 +295,20 @@ def page():
 
     body = ui.column().classes("w-full max-w-7xl mx-auto px-6 py-6 gap-6")
     with body:
-        # ----- error banner -----
         error_card = ui.card().classes("w-full border border-red-700 bg-red-900/30")
         with error_card:
             error_label = ui.label("").classes("text-red-300 text-sm")
         error_card.visible = False
 
-        # ----- GPU section -----
         ui.label("GPUs").classes("section-label")
         gpu_row = ui.row().classes("w-full gap-4 flex-wrap")
 
-        # ----- Deploy section -----
         ui.label("Deploy Container").classes("section-label mt-2")
         with ui.card().classes("w-full glass p-5"):
             with ui.row().classes("w-full gap-3 items-end"):
-                image_in = ui.input("Image", value=DEFAULT_IMAGE).classes("flex-1 min-w-48")
+                image_in = ui.select(
+                    [DEFAULT_IMAGE], value=DEFAULT_IMAGE, label="Image",
+                ).classes("flex-1 min-w-48")
                 name_in = ui.input("Container name (optional)").classes("flex-1 min-w-48")
                 gpu_select = ui.select({}, label="GPU").classes("min-w-40")
                 mem_in = ui.input("Memory limit", value="4g").classes("w-28").props("hint='4g / 512m / 2048'")
@@ -328,15 +317,53 @@ def page():
                 cmd_in = ui.input("Command (optional)", placeholder="nvidia-smi").classes("flex-1")
                 deploy_btn = ui.button("Deploy", icon="rocket_launch").props("color=primary unelevated").classes("h-12 px-6")
 
-        # ----- Containers section -----
         ui.label("Managed Containers").classes("section-label mt-2")
         containers_card = ui.card().classes("w-full glass p-0 overflow-hidden")
         with containers_card:
             containers_body = ui.column().classes("w-full p-0 gap-0")
 
+    # ----- logs modal -----
+    log_target = {"cid": "", "name": ""}
+    with ui.dialog() as logs_dialog, ui.card().classes("glass w-full max-w-5xl"):
+        with ui.row().classes("w-full items-center justify-between"):
+            with ui.column().classes("gap-0"):
+                logs_title = ui.label("").classes("text-lg font-bold text-slate-100")
+                logs_subtitle = ui.label("").classes("text-xs text-slate-500 font-mono")
+            with ui.row().classes("gap-1"):
+                logs_reload_btn = ui.button(icon="refresh") \
+                    .props("flat round dense").classes("text-slate-300").tooltip("Reload")
+                ui.button(icon="close", on_click=logs_dialog.close) \
+                    .props("flat round dense").classes("text-slate-300")
+        logs_html = ui.html("")
+
+    # ----- shell modal -----
+    shell_target = {"cid": "", "name": ""}
+    shell = ShellWS()
+
+    async def close_shell_dialog():
+        await shell.close()
+        shell_dialog.close()
+
+    with ui.dialog() as shell_dialog, ui.card().classes("glass w-full max-w-5xl"):
+        with ui.row().classes("w-full items-center justify-between"):
+            with ui.column().classes("gap-0"):
+                shell_title = ui.label("").classes("text-lg font-bold text-slate-100")
+                shell_subtitle = ui.label("").classes("text-xs text-slate-500 font-mono")
+            ui.button(icon="close", on_click=close_shell_dialog) \
+                .props("flat round dense").classes("text-slate-300")
+        xterm = ui.xterm(options={
+            "theme": {"background": "#020617", "foreground": "#e2e8f0", "cursor": "#34d399"},
+            "cursorBlink": True,
+            "fontFamily": "ui-monospace, Menlo, Consolas, monospace",
+            "fontSize": 13,
+            "convertEol": False,
+            "scrollback": 5000,
+        }).classes("w-full").style("height: 65vh;")
+    shell_dialog.on("hide", lambda _: asyncio.create_task(shell.close()))
+
     # ----- renderers -----
     def render_status():
-        if state.client:
+        if state.connected:
             docker_dot.classes(replace="dot dot-on")
             docker_label.text = f"Connected · {state.docker_target}"
             docker_label.classes(replace="text-sm text-emerald-300")
@@ -383,7 +410,6 @@ def page():
             if not state.containers:
                 ui.label("No managed containers — deploy one above").classes("text-slate-500 italic p-6 text-center")
                 return
-            # column header
             with ui.row().classes("w-full px-4 py-3 text-xs text-slate-500 uppercase tracking-wider border-b border-slate-700/60"):
                 ui.label("Name").classes("flex-[2]")
                 ui.label("Image").classes("flex-[2]")
@@ -391,9 +417,11 @@ def page():
                 ui.label("Memory").classes("w-24")
                 ui.label("SM").classes("w-16")
                 ui.label("Status").classes("w-28")
-                ui.label("").classes("w-28")
+                ui.label("").classes("w-36")
             for c in state.containers:
-                with ui.row().classes("w-full px-4 py-3 items-center border-b border-slate-800/40 hover:bg-slate-800/30"):
+                row = ui.row().classes("w-full px-4 py-3 items-center border-b border-slate-800/40 hover:bg-slate-800/30 cursor-pointer")
+                row.on("click", lambda _, x=c.id, n=c.name: handle_show_logs(x, n))
+                with row:
                     ui.label(c.name).classes("flex-[2] text-slate-200 truncate font-medium")
                     ui.label(c.image).classes("flex-[2] text-slate-400 text-sm truncate")
                     ui.label(str(c.gpu_index)).classes("w-16 text-slate-300")
@@ -402,13 +430,29 @@ def page():
                     with ui.row().classes("w-28"):
                         cls = {"running": "pill-running", "exited": "pill-exited"}.get(c.status, "pill-created")
                         ui.label(c.status).classes(f"pill {cls}")
-                    with ui.row().classes("w-28 gap-1"):
+                    actions = ui.row().classes("w-36 gap-1")
+                    actions.on("click.stop", lambda _: None)
+                    with actions:
                         cid = c.id
                         if c.status == "running":
+                            ui.button(icon="terminal",
+                                      on_click=lambda _, x=cid, n=c.name: handle_show_shell(x, n)) \
+                                .props("flat dense round").classes("text-emerald-400").tooltip("Shell")
                             ui.button(icon="stop", on_click=lambda _, x=cid: handle_stop(x)) \
                                 .props("flat dense round").classes("text-amber-400").tooltip("Stop")
                         ui.button(icon="delete", on_click=lambda _, x=cid: handle_remove(x)) \
                             .props("flat dense round").classes("text-red-400").tooltip("Remove")
+
+    def sync_image_select():
+        opts = list(dict.fromkeys([DEFAULT_IMAGE, "hami-pytorch:latest"] + state.images))
+        prev = image_in.value
+        if prev and prev not in opts:
+            opts.append(prev)
+        image_in.set_options(opts)
+        if prev in opts:
+            image_in.value = prev
+        else:
+            image_in.value = DEFAULT_IMAGE
 
     def sync_gpu_select():
         opts = {g.index: f"GPU {g.index} — {g.name[:24]}" for g in state.gpus}
@@ -423,11 +467,12 @@ def page():
 
     # ----- handlers -----
     async def do_refresh():
-        await run.io_bound(refresh_state)
+        await _fetch_state()
         render_status()
         render_gpus()
         render_containers()
         sync_gpu_select()
+        sync_image_select()
 
     async def handle_deploy():
         if gpu_select.value is None:
@@ -435,41 +480,121 @@ def page():
             return
         deploy_btn.disable()
         try:
-            await run.io_bound(
-                deploy,
-                image_in.value.strip(),
-                name_in.value.strip(),
-                int(gpu_select.value),
-                mem_in.value.strip(),
-                int(sm_in.value or 100),
-                cmd_in.value.strip(),
-            )
+            await client.deploy({
+                "image": (image_in.value or "").strip() or DEFAULT_IMAGE,
+                "name": name_in.value.strip(),
+                "gpu_index": int(gpu_select.value),
+                "memory": mem_in.value.strip(),
+                "sm_limit": int(sm_in.value or 100),
+                "command": cmd_in.value.strip(),
+            })
             ui.notify(f"Deployed on GPU {gpu_select.value}", type="positive")
             await do_refresh()
-        except ImageNotFound:
-            ui.notify(f"Image not found: {image_in.value}", type="negative")
-        except APIError as e:
-            msg = getattr(e, "explanation", None) or str(e)
-            ui.notify(f"Docker: {msg}", type="negative", multi_line=True, close_button=True)
-        except Exception as e:
+        except BackendError as e:
             ui.notify(f"Deploy failed: {e}", type="negative", multi_line=True, close_button=True)
+        except httpx.HTTPError as e:
+            ui.notify(f"Backend error: {e}", type="negative", multi_line=True, close_button=True)
         finally:
             deploy_btn.enable()
 
+    PRE_STYLE = (
+        "max-height:65vh;overflow:auto;white-space:pre-wrap;"
+        "word-break:break-word;font-size:11px;line-height:1.4;"
+        "background:rgba(0,0,0,0.35);padding:12px;border-radius:6px;"
+        "font-family:ui-monospace,Menlo,Consolas,monospace;width:100%;"
+    )
+
+    async def load_logs():
+        cid = log_target["cid"]
+        if not cid:
+            return
+        logs_html.set_content(f'<pre style="{PRE_STYLE}color:#94a3b8;">Loading…</pre>')
+        try:
+            logs = await client.get_logs(cid)
+        except httpx.HTTPError as e:
+            logs = f"Backend error: {e}"
+        text = (logs or "").strip() or "(no logs yet)"
+        logs_html.set_content(
+            f'<pre style="{PRE_STYLE}color:#cbd5e1;">{html.escape(text)}</pre>'
+        )
+
+    logs_reload_btn.on_click(load_logs)
+
+    async def handle_show_logs(cid, name):
+        log_target["cid"] = cid
+        log_target["name"] = name
+        logs_title.text = f"Logs — {name}"
+        logs_subtitle.text = cid
+        logs_dialog.open()
+        await load_logs()
+
+    # NiceGUI's xterm event shape varies across versions — accept both forms.
+    def _xterm_input(e):
+        data = getattr(e, "data", None)
+        if data is None and isinstance(getattr(e, "args", None), dict):
+            data = e.args.get("data", "")
+        if data is None and isinstance(getattr(e, "args", None), str):
+            data = e.args
+        if data:
+            asyncio.create_task(shell.send_input(data))
+
+    def _xterm_resize(e):
+        rows = getattr(e, "rows", None)
+        cols = getattr(e, "cols", None)
+        if rows is None and isinstance(getattr(e, "args", None), dict):
+            rows = e.args.get("rows")
+            cols = e.args.get("cols")
+        if rows and cols:
+            asyncio.create_task(shell.send_resize(rows, cols))
+
+    xterm.on_data(_xterm_input)
+    xterm.on_resize(_xterm_resize)
+
+    async def handle_show_shell(cid, name):
+        await shell.close()
+        shell_target["cid"] = cid
+        shell_target["name"] = name
+        shell_title.text = f"Shell — {name}"
+        shell_subtitle.text = cid
+        shell_dialog.open()
+        await asyncio.sleep(0.2)
+        try:
+            await xterm.run_terminal_method("reset")
+        except Exception:
+            pass
+        try:
+            await xterm.fit()
+            rows = await xterm.get_rows()
+            cols = await xterm.get_columns()
+        except Exception:
+            rows, cols = 24, 80
+
+        try:
+            await shell.open(cid, lambda b: xterm.write(b))
+            await shell.send_resize(rows, cols)
+            xterm.run_method("focus")
+        except Exception as e:
+            xterm.write(f"\r\n\x1b[31mFailed to start shell: {e}\x1b[0m\r\n".encode())
+
     async def handle_stop(cid):
-        await run.io_bound(stop_container, cid)
+        try:
+            await client.stop(cid)
+        except httpx.HTTPError as e:
+            ui.notify(f"Stop failed: {e}", type="negative")
         await do_refresh()
 
     async def handle_remove(cid):
-        await run.io_bound(remove_container, cid)
+        try:
+            await client.remove(cid)
+        except httpx.HTTPError as e:
+            ui.notify(f"Remove failed: {e}", type="negative")
         await do_refresh()
 
     refresh_btn.on_click(do_refresh)
     deploy_btn.on_click(handle_deploy)
 
-    # initial render + periodic refresh
     ui.timer(0.1, do_refresh, once=True)
     ui.timer(REFRESH_SECONDS, do_refresh)
 
 
-ui.run(port=8080, title="HAMi Control Panel", dark=True, show=False, reload=False)
+ui.run(port=PANEL_PORT, title="HAMi Control Panel", dark=True, show=False, reload=False)

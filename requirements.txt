@@ -1,2 +1,10 @@
-nicegui>=1.4.0
+# Backend (FastAPI service)
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
 docker>=7.0.0
+
+# Panel (NiceGUI UI)
+nicegui>=1.4.0
+httpx>=0.27
+websockets>=12.0

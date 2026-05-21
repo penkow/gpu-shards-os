@@ -1,0 +1,54 @@
+export type Gpu = {
+  index: number
+  name: string
+  memory_total_mb: number
+  memory_used_mb: number
+  utilization_pct: number
+  allocated_mb: number
+  allocated_sm_pct: number
+}
+
+export type ManagedContainer = {
+  id: string
+  name: string
+  status: string
+  image: string
+  gpu_index: string
+  memory_limit_mb: number
+  memory_limit_raw: string
+  sm_limit: string
+}
+
+export type ContainerDetail = ManagedContainer & {
+  env: Record<string, string>
+  command: string[]
+  created_at: string
+  started_at: string
+  finished_at: string
+  exit_code: number
+  restart_count: number
+  restart_policy: string
+}
+
+export type PanelState = {
+  connected: boolean
+  docker_target: string
+  error: string
+  gpus: Gpu[]
+  containers: ManagedContainer[]
+  images: string[]
+}
+
+export type DeployRequest = {
+  image: string
+  name?: string
+  gpu_index: number
+  memory: string
+  sm_limit: number
+  command?: string
+}
+
+export type DeployResponse = {
+  id: string
+  name: string
+}

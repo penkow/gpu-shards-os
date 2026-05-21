@@ -1,7 +1,5 @@
-# syntax=docker/dockerfile:1.6
-
 # ---- Stage 1: build libvgpu.so from HAMi-core ----
-FROM nvidia/cuda:12.2.2-devel-ubuntu22.04 AS builder
+FROM nvidia/cuda:12.6.3-devel-ubuntu22.04 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git cmake make gcc g++ ca-certificates \
@@ -12,7 +10,7 @@ WORKDIR /src
 RUN make
 
 # ---- Stage 2: runtime image with nvidia-smi ----
-FROM nvidia/cuda:12.2.2-base-ubuntu22.04
+FROM nvidia/cuda:12.6.3-base-ubuntu22.04
 
 COPY --from=builder /src/build/libvgpu.so /libvgpu/build/libvgpu.so
 

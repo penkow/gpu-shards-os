@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1.6
+
+# Pull HAMi-core's libvgpu.so from the already-built demo image so we don't recompile.
+FROM hami-core-demo:latest AS hamilib
+
+# ---- PyTorch dev image, kept alive so `docker exec` can attach ----
+FROM pytorch/pytorch:2.12.0-cuda13.0-cudnn9-devel
+
+COPY --from=hamilib /libvgpu/build/libvgpu.so /libvgpu/build/libvgpu.so
+RUN test -f /libvgpu/build/libvgpu.so
+
+CMD ["sleep", "infinity"]
