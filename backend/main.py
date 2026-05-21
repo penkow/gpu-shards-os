@@ -19,11 +19,14 @@ from .config import settings
 from .docker_service import DockerError, DockerService
 from .editor_service import EditorService
 from .endpoint_service import EndpointService
+from .image_build_service import ImageBuildService
 from .models import (
+    BuildImageRequest, BuildStatus, BuildsListResponse,
     ContainerDetail, DeployRequest, DeployResponse, EditorFile,
     EditorFilesResponse, EditorRunRequest, EditorRunResponse,
     EndpointCreateRequest, EndpointDetail, EndpointsListResponse,
-    InvokeResult, LogsResponse, OkResponse, StateResponse,
+    InvokeResult, LogsResponse, OkResponse, RequestTemplate,
+    RequestTemplateUpsert, StateResponse, TemplatesResponse,
 )
 from .shell_service import bridge_websocket
 
@@ -37,6 +40,7 @@ log = logging.getLogger("hami.backend")
 service = DockerService()
 editor = EditorService(service)
 endpoints = EndpointService(service)
+image_builds = ImageBuildService(service)
 
 
 @asynccontextmanager
@@ -260,6 +264,57 @@ async def editor_delete_file(name: str) -> OkResponse:
     return OkResponse()
 
 
+# ---- image builds --------------------------------------------------------
+
+@app.post(
+    "/api/images/builds",
+    response_model=BuildStatus,
+    status_code=status.HTTP_201_CREATED,
+    tags=["images"],
+    dependencies=[Depends(require_api_key)],
+)
+async def start_image_build(req: BuildImageRequest) -> BuildStatus:
+    return await image_builds.start_build(tag=req.tag.strip(), dockerfile=req.dockerfile)
+
+
+@app.get(
+    "/api/images/builds",
+    response_model=BuildsListResponse,
+    tags=["images"],
+    dependencies=[Depends(require_api_key)],
+)
+async def list_image_builds() -> BuildsListResponse:
+    return BuildsListResponse(builds=image_builds.list_builds())
+
+
+@app.get(
+    "/api/images/builds/{build_id}",
+    response_model=BuildStatus,
+    tags=["images"],
+    dependencies=[Depends(require_api_key)],
+)
+async def get_image_build(build_id: str) -> BuildStatus:
+    return image_builds.get_status(build_id)
+
+
+@app.get(
+    "/api/images/builds/{build_id}/stream",
+    tags=["images"],
+)
+async def stream_image_build(build_id: str, token: Optional[str] = Query(default=None)) -> StreamingResponse:
+    _require_sse_api_key(token)
+
+    async def event_source():
+        async for ev in image_builds.subscribe(build_id):
+            yield f"data: {ImageBuildService.event_to_sse_text(ev)}\n\n"
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ---- endpoints (FaaS) ----------------------------------------------------
 
 @app.post(
@@ -277,6 +332,7 @@ async def create_endpoint(req: EndpointCreateRequest) -> EndpointDetail:
         gpu_index=req.gpu_index,
         memory=req.memory,
         sm_limit=req.sm_limit,
+        image=req.image,
     )
 
 
@@ -308,6 +364,41 @@ async def get_endpoint(name: str) -> EndpointDetail:
 )
 async def delete_endpoint(name: str) -> OkResponse:
     await endpoints.delete(name)
+    return OkResponse()
+
+
+@app.get(
+    "/api/endpoints/{name}/templates",
+    response_model=TemplatesResponse,
+    tags=["endpoints"],
+    dependencies=[Depends(require_api_key)],
+)
+async def list_endpoint_templates(name: str) -> TemplatesResponse:
+    return TemplatesResponse(templates=await endpoints.list_templates(name))
+
+
+@app.put(
+    "/api/endpoints/{name}/templates/{tid}",
+    response_model=RequestTemplate,
+    tags=["endpoints"],
+    dependencies=[Depends(require_api_key)],
+)
+async def upsert_endpoint_template(
+    name: str, tid: str, req: RequestTemplateUpsert,
+) -> RequestTemplate:
+    return await endpoints.upsert_template(
+        name, tid, display=req.name, body=req.body,
+    )
+
+
+@app.delete(
+    "/api/endpoints/{name}/templates/{tid}",
+    response_model=OkResponse,
+    tags=["endpoints"],
+    dependencies=[Depends(require_api_key)],
+)
+async def delete_endpoint_template(name: str, tid: str) -> OkResponse:
+    await endpoints.delete_template(name, tid)
     return OkResponse()
 
 

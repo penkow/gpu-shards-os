@@ -26,6 +26,73 @@ Each released entry below corresponds to a git tag `v<MAJOR>.<MINOR>.<PATCH>`.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-05-21
+
+### Added
+
+#### Custom Docker image builds
+
+- `POST /api/images/builds` — kicks off a Docker build from a `{tag, dockerfile}`
+  payload. Writes the Dockerfile to a temp build context and streams build
+  events into an in-memory ring per build.
+- `GET /api/images/builds`, `GET /api/images/builds/{build_id}` — list/inspect
+  recent in-memory builds (status, image id, error, timestamps).
+- `GET /api/images/builds/{build_id}/stream` — SSE stream of Docker build
+  events (`stream` / `error` / `aux`). Late subscribers replay buffered events
+  (up to 500) then tail live ones.
+- New `ImageBuildService` owns the in-memory build registry; state resets on
+  backend restart by design.
+- Frontend: `/images` page gains a **Build image** button that opens a new
+  `BuildImageDialog` with a tag input, a Monaco Dockerfile editor (prepopulated
+  with a `FROM gpu-shards-editor-gpu:latest` + `pip install` starter), and an
+  embedded xterm streaming the build output. Successful builds offer a
+  "Use \<tag\>" shortcut.
+
+#### Custom image for endpoints
+
+- `EndpointCreateRequest.image: str` (optional) — empty means use the default
+  CPU/GPU editor image; non-empty overrides.
+- `EndpointDetail.image_used: str` — populated from per-endpoint stats (when
+  available) or `container.image.tags`. Surfaced in the endpoint detail page
+  header.
+- Deploy-as-Endpoint dialog gains an **Image** select listing every tag on the
+  daemon plus a `(default)` sentinel, and a **Build new image…** link that
+  opens the build dialog inline; on success the new tag is auto-selected.
+
+#### Named request templates per endpoint
+
+- `GET/PUT/DELETE /api/endpoints/{name}/templates[/{id}]` — CRUD for per-endpoint
+  request templates. `id` is a kebab-case slug (`^[a-z][a-z0-9-]{0,63}$`); the
+  display `name` and `body` are stored at
+  `<endpoint_dir>/templates/<id>.json`. Survives backend + container restarts.
+- Endpoint detail page Try-it panel: a template `Select` above the textarea,
+  a **Save as…** dialog (slugifies the display name), **Update** for the
+  selected template, and **Delete**. A dirty-dot indicates unsaved edits to
+  the selected template. On initial load, the first template (if any) is
+  applied to the textarea automatically.
+
+#### Multi-session shells per container
+
+- `frontend/stores/shell-sessions.ts` re-keyed from `cid -> session` to
+  `sessionId -> session`. Each session now carries `{sessionId, cid, label,
+  containerName, ...}`. `openShellSession(cid, name, label?)` always creates a
+  new session (one click = one fresh PTY); `closeShellSession(sessionId)` and
+  `useShellSessionsForCid(cid)` are the new helpers. Backend unchanged —
+  `/api/containers/{cid}/shell` already starts a fresh `docker exec` per WS
+  connect, so concurrent sessions naturally get independent PTYs.
+- New `ShellPane` (`features/panel/components/shell-pane.tsx`) renders inside
+  the Container detail page's **Shell** tab: a left rail listing sessions for
+  that container (status dot, label, kill X), a **+ New session** button at
+  top, and a right viewport binding to the selected session. The active
+  session is synced to `?sid=...` so reload + deep links restore it.
+- Global `ShellTray` chips now show `containerName/label` and link to the
+  detail page with the right `sid`.
+
+### Changed
+
+- `EndpointDetail.image_used` added (additive).
+- Sidebar / pages otherwise unchanged.
+
 ## [0.4.0] — 2026-05-21
 
 ### Added

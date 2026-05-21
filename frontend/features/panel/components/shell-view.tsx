@@ -4,37 +4,31 @@ import { useEffect, useRef } from 'react'
 import {
   attachShellTo,
   getSession,
-  openShellSession,
   useShellSessions,
 } from '@/stores/shell-sessions'
 
 type Props = {
-  cid: string
-  name: string
+  sessionId: string
   className?: string
 }
 
 /**
- * Visible viewport for an xterm session. Mounting/unmounting only moves the
- * shared terminal DOM in and out — it does NOT dispose the session, so navigating
- * away and back preserves the prompt and scrollback.
+ * Visible viewport for an existing xterm session. Mounting/unmounting only
+ * moves the shared terminal DOM in and out — it does NOT dispose the session,
+ * so navigating away and back preserves the prompt and scrollback.
  */
-export function ShellView({ cid, name, className }: Props) {
+export function ShellView({ sessionId, className }: Props) {
   const viewportRef = useRef<HTMLDivElement>(null)
-  // Re-render when status changes (so resize observer triggers fit).
+  // Re-render when any session status changes.
   useShellSessions()
-
-  useEffect(() => {
-    openShellSession(cid, name)
-  }, [cid, name])
 
   useEffect(() => {
     const viewport = viewportRef.current
     if (!viewport) return
-    const detach = attachShellTo(cid, viewport)
+    const detach = attachShellTo(sessionId, viewport)
 
     const ro = new ResizeObserver(() => {
-      const session = getSession(cid)
+      const session = getSession(sessionId)
       if (!session) return
       try {
         session.fit.fit()
@@ -53,16 +47,16 @@ export function ShellView({ cid, name, className }: Props) {
       ro.disconnect()
       detach?.()
     }
-  }, [cid])
+  }, [sessionId])
 
-  const session = getSession(cid)
+  const session = getSession(sessionId)
   const status = session?.status ?? 'idle'
   const detail = session?.statusDetail ?? ''
 
   return (
     <div className={className}>
       <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-        <span className="font-mono">{cid}</span>
+        <span className="font-mono">{session?.label ?? sessionId}</span>
         <span>· {status}</span>
         {detail && <span className="truncate">— {detail}</span>}
       </div>

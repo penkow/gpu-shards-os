@@ -38,9 +38,11 @@ export function ContainerActions({
 
   function onShell(e: React.MouseEvent) {
     e.stopPropagation()
-    openShellSession(container.id, container.name)
+    const sid = openShellSession(container.id, container.name)
     if (openShellInPage) {
-      router.push(`/containers/${encodeURIComponent(container.id)}?tab=shell`)
+      router.push(
+        `/containers/${encodeURIComponent(container.id)}?tab=shell&sid=${encodeURIComponent(sid)}`,
+      )
     }
   }
 

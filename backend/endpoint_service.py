@@ -12,7 +12,9 @@ container surviving (we re-discover them by label).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 import shutil
 import time
 from datetime import datetime, timezone
@@ -25,7 +27,7 @@ from docker.types import DeviceRequest
 
 from .config import settings
 from .docker_service import DockerError, DockerService, memory_to_mb
-from .models import EndpointDetail, EndpointSummary, InvokeResult
+from .models import EndpointDetail, EndpointSummary, InvokeResult, RequestTemplate
 
 log = logging.getLogger(__name__)
 
@@ -89,9 +91,9 @@ with socketserver.ThreadingTCPServer(("0.0.0.0", 8080), H) as s:
 
 
 class _Stats:
-    __slots__ = ("count", "last_at", "latencies", "created_at", "code", "use_gpu", "memory_raw", "sm_limit")
+    __slots__ = ("count", "last_at", "latencies", "created_at", "code", "use_gpu", "memory_raw", "sm_limit", "image")
 
-    def __init__(self, code: str, use_gpu: bool, memory_raw: str, sm_limit: int) -> None:
+    def __init__(self, code: str, use_gpu: bool, memory_raw: str, sm_limit: int, image: str = "") -> None:
         self.count: int = 0
         self.last_at: str = ""
         self.latencies: list[int] = []
@@ -100,6 +102,7 @@ class _Stats:
         self.use_gpu: bool = use_gpu
         self.memory_raw: str = memory_raw
         self.sm_limit: int = sm_limit
+        self.image: str = image
 
     def record(self, ms: int) -> None:
         self.count += 1
@@ -124,6 +127,9 @@ class EndpointService:
 
     def _endpoint_dir(self, name: str) -> Path:
         return self._endpoints_root() / name
+
+    def _templates_dir(self, name: str) -> Path:
+        return self._endpoint_dir(name) / "templates"
 
     # ---- container discovery -------------------------------------------
 
@@ -205,12 +211,21 @@ class EndpointService:
             except Exception:
                 code = ""
         use_gpu = st.use_gpu if st else ("NVIDIA_VISIBLE_DEVICES" in env)
+        if st and st.image:
+            image_used = st.image
+        else:
+            try:
+                tags = container.image.tags or []
+            except Exception:
+                tags = []
+            image_used = tags[0] if tags else ""
         return EndpointDetail(
             **summary.model_dump(),
             code=code,
             memory_limit_raw=memory_raw,
             sm_limit=sm_limit,
             use_gpu=use_gpu,
+            image_used=image_used,
             recent_latencies_ms=list(st.latencies) if st else [],
         )
 
@@ -243,6 +258,7 @@ class EndpointService:
         gpu_index: int,
         memory: str,
         sm_limit: int,
+        image: str = "",
     ) -> EndpointDetail:
         existing = await self._find_container(name)
         if existing is not None:
@@ -253,7 +269,7 @@ class EndpointService:
         (ep_dir / "main.py").write_text(code, encoding="utf-8")
         (ep_dir / "_endpoint_runner.py").write_text(_ENDPOINT_RUNNER, encoding="utf-8")
 
-        image = settings.editor_image_gpu if use_gpu else settings.editor_image_cpu
+        image = image.strip() or (settings.editor_image_gpu if use_gpu else settings.editor_image_cpu)
         labels = {
             settings.label_key: settings.label_value,
             settings.endpoint_label_key: name,
@@ -302,7 +318,7 @@ class EndpointService:
             raise DockerError(str(e), status_code=400)
 
         self._stats[name] = _Stats(
-            code=code, use_gpu=use_gpu, memory_raw=memory if use_gpu else "", sm_limit=sm_limit,
+            code=code, use_gpu=use_gpu, memory_raw=memory if use_gpu else "", sm_limit=sm_limit, image=image,
         )
 
         # Reload container.attrs to pick up published port.
@@ -408,3 +424,65 @@ class EndpointService:
             n: {"count": s.count, "last_at": s.last_at}
             for n, s in self._stats.items()
         }
+
+    # ---- request templates ---------------------------------------------
+
+    _TEMPLATE_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+
+    async def _require_endpoint(self, name: str) -> None:
+        if await self._find_container(name) is None:
+            raise DockerError(f"endpoint not found: {name}", status_code=404)
+
+    def _list_templates_sync(self, name: str) -> list[RequestTemplate]:
+        tdir = self._templates_dir(name)
+        if not tdir.exists():
+            return []
+        out: list[RequestTemplate] = []
+        for f in sorted(tdir.iterdir()):
+            if not f.is_file() or f.suffix != ".json":
+                continue
+            tid = f.stem
+            if not self._TEMPLATE_ID_RE.match(tid):
+                continue
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            display = str(data.get("name") or tid)
+            body = str(data.get("body") or "")
+            out.append(RequestTemplate(id=tid, name=display, body=body))
+        return out
+
+    async def list_templates(self, name: str) -> list[RequestTemplate]:
+        await self._require_endpoint(name)
+        return await asyncio.to_thread(self._list_templates_sync, name)
+
+    async def upsert_template(self, name: str, tid: str, *, display: str, body: str) -> RequestTemplate:
+        if not self._TEMPLATE_ID_RE.match(tid):
+            raise DockerError(
+                "invalid template id (lowercase letter then [a-z0-9-], up to 64 chars)",
+                status_code=400,
+            )
+        await self._require_endpoint(name)
+
+        def _do() -> RequestTemplate:
+            tdir = self._templates_dir(name)
+            tdir.mkdir(parents=True, exist_ok=True)
+            payload = json.dumps({"name": display, "body": body}, ensure_ascii=False)
+            (tdir / f"{tid}.json").write_text(payload, encoding="utf-8")
+            return RequestTemplate(id=tid, name=display, body=body)
+
+        return await asyncio.to_thread(_do)
+
+    async def delete_template(self, name: str, tid: str) -> None:
+        if not self._TEMPLATE_ID_RE.match(tid):
+            raise DockerError("invalid template id", status_code=400)
+        await self._require_endpoint(name)
+
+        def _do() -> None:
+            f = self._templates_dir(name) / f"{tid}.json"
+            if not f.exists():
+                raise DockerError(f"template not found: {tid}", status_code=404)
+            f.unlink()
+
+        await asyncio.to_thread(_do)

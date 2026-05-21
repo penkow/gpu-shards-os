@@ -38,12 +38,12 @@ export function ShellTray() {
       />
       {sessionIds.length > 0 && (
         <div className="pointer-events-auto fixed bottom-4 right-4 z-40 flex max-w-md flex-wrap gap-2">
-          {sessionIds.map((cid) => {
-            const session = getSession(cid)
+          {sessionIds.map((sid) => {
+            const session = getSession(sid)
             if (!session) return null
             return (
               <div
-                key={cid}
+                key={sid}
                 className="flex items-center gap-2 rounded-full border bg-background/95 px-3 py-1 text-xs shadow-md backdrop-blur"
               >
                 <Badge
@@ -59,16 +59,17 @@ export function ShellTray() {
                   {session.status}
                 </Badge>
                 <Link
-                  href={`/containers/${encodeURIComponent(cid)}?tab=shell`}
-                  className="max-w-32 truncate font-mono hover:underline"
+                  href={`/containers/${encodeURIComponent(session.cid)}?tab=shell&sid=${encodeURIComponent(sid)}`}
+                  className="max-w-48 truncate font-mono hover:underline"
+                  title={`${session.containerName} · ${session.label}`}
                 >
-                  {session.name}
+                  {session.containerName}/{session.label}
                 </Link>
                 <Button
                   variant="ghost"
                   size="icon-sm"
                   title="Close shell"
-                  onClick={() => closeShellSession(cid)}
+                  onClick={() => closeShellSession(sid)}
                 >
                   <X />
                 </Button>

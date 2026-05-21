@@ -92,6 +92,7 @@ export function EditorPage() {
   const [isRunning, setIsRunning] = useState(false)
   const [useGpu, setUseGpu] = useState(false)
   const [gpus, setGpus] = useState<Gpu[]>([])
+  const [images, setImages] = useState<string[]>([])
   const [gpuIndex, setGpuIndex] = useState<number>(0)
   const [containerId, setContainerId] = useState<string>('')
   const [containerName, setContainerName] = useState<string>('')
@@ -130,9 +131,10 @@ export function EditorPage() {
         const state = await fetchState()
         if (cancelled) return
         setGpus(state.gpus)
+        setImages(state.images)
         if (state.gpus.length > 0) setGpuIndex(state.gpus[0].index)
       } catch (e: any) {
-        console.warn('editor: failed to fetch GPU list', e?.message ?? e)
+        console.warn('editor: failed to fetch panel state', e?.message ?? e)
       }
     })()
     return () => {
@@ -588,6 +590,7 @@ export function EditorPage() {
         onOpenChange={setDeployOpen}
         code={currentCode()}
         gpus={gpus}
+        images={images}
         defaultUseGpu={useGpu}
         defaultGpuIndex={gpuIndex}
       />

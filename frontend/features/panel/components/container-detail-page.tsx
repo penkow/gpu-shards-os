@@ -11,7 +11,7 @@ import { Main } from '@/components/layout/main'
 import { useContainerFromState, useContainerInspect } from '../hooks'
 import { ContainerActions } from './container-actions'
 import { LogsView } from './logs-view'
-import { ShellView } from './shell-view'
+import { ShellPane } from './shell-pane'
 
 export function ContainerDetailPage() {
   const params = useParams<{ id: string }>()
@@ -93,13 +93,12 @@ export function ContainerDetailPage() {
         <TabsContent value="shell">
           <Card>
             <CardContent>
-              {status === 'running' ? (
-                <ShellView cid={cid} name={name} />
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Container is {status}; start it to attach a shell.
-                </p>
-              )}
+              <ShellPane
+                cid={cid}
+                name={name}
+                disabled={status !== 'running'}
+                disabledMessage={`Container is ${status}; start it to attach a shell.`}
+              />
             </CardContent>
           </Card>
         </TabsContent>

@@ -13,8 +13,12 @@ export type ShellStatus =
   | 'error'
 
 export type ShellSession = {
+  sessionId: string
   cid: string
-  name: string
+  /** Container name (for display in the global tray). */
+  containerName: string
+  /** Per-session label, e.g. "shell-1". Editable in the future. */
+  label: string
   terminal: Terminal
   fit: FitAddon
   ws: WebSocket | null
@@ -31,14 +35,14 @@ function emit() {
   for (const l of listeners) l()
 }
 
-function snapshot(): readonly string[] {
+function snapshotAll(): readonly string[] {
   return Array.from(sessions.keys())
 }
 
-let cached: readonly string[] = snapshot()
+let cachedAll: readonly string[] = snapshotAll()
 
 function notify() {
-  cached = snapshot()
+  cachedAll = snapshotAll()
   emit()
 }
 
@@ -47,12 +51,20 @@ export function subscribeSessions(cb: () => void) {
   return () => listeners.delete(cb)
 }
 
-export function getSessions(): readonly string[] {
-  return cached
+export function getSessionIds(): readonly string[] {
+  return cachedAll
 }
 
-export function getSession(cid: string): ShellSession | undefined {
-  return sessions.get(cid)
+export function getSession(sessionId: string): ShellSession | undefined {
+  return sessions.get(sessionId)
+}
+
+export function getSessionsForCid(cid: string): readonly string[] {
+  const out: string[] = []
+  for (const [sid, s] of sessions) {
+    if (s.cid === cid) out.push(sid)
+  }
+  return out
 }
 
 export function registerTrayHost(host: HTMLElement | null) {
@@ -135,21 +147,38 @@ function connectWebSocket(session: ShellSession) {
   }
 }
 
-/** Create-or-reuse a shell session. The host div is created immediately but the
- * xterm Terminal is opened lazily once the host is in the DOM. */
-export function openShellSession(cid: string, name: string): ShellSession {
-  const existing = sessions.get(cid)
-  if (existing) {
-    existing.name = name
-    return existing
+function nextLabelForCid(cid: string): string {
+  let n = 1
+  const taken = new Set<string>()
+  for (const s of sessions.values()) {
+    if (s.cid === cid) taken.add(s.label)
   }
+  while (taken.has(`shell-${n}`)) n += 1
+  return `shell-${n}`
+}
 
+function makeSessionId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `s-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`
+}
+
+/**
+ * Always creates a brand-new shell session for the given container. Returns
+ * the new session id. The host div is created immediately; the xterm Terminal
+ * opens lazily once the host is in the DOM.
+ */
+export function openShellSession(cid: string, containerName: string, label?: string): string {
+  const sessionId = makeSessionId()
   const host = document.createElement('div')
   host.className = 'h-full w-full'
   const { terminal, fit } = createTerminal()
   const session: ShellSession = {
+    sessionId,
     cid,
-    name,
+    containerName,
+    label: label && label.trim() ? label.trim() : nextLabelForCid(cid),
     terminal,
     fit,
     ws: null,
@@ -157,19 +186,19 @@ export function openShellSession(cid: string, name: string): ShellSession {
     status: 'idle',
     statusDetail: '',
   }
-  sessions.set(cid, session)
+  sessions.set(sessionId, session)
   if (trayHost) trayHost.appendChild(host)
   notify()
-  return session
+  return sessionId
 }
 
 /** Move a session's host into a viewport. Returns a detach() that moves it
  * back to the tray (so the terminal survives route changes). */
 export function attachShellTo(
-  cid: string,
+  sessionId: string,
   viewport: HTMLElement
 ): (() => void) | undefined {
-  const session = sessions.get(cid)
+  const session = sessions.get(sessionId)
   if (!session) return undefined
   if (session.host.parentElement !== viewport) {
     viewport.appendChild(session.host)
@@ -197,8 +226,8 @@ export function attachShellTo(
   }
 }
 
-export function closeShellSession(cid: string) {
-  const session = sessions.get(cid)
+export function closeShellSession(sessionId: string) {
+  const session = sessions.get(sessionId)
   if (!session) return
   try {
     session.ws?.close()
@@ -209,10 +238,18 @@ export function closeShellSession(cid: string) {
   try {
     session.host.remove()
   } catch {}
-  sessions.delete(cid)
+  sessions.delete(sessionId)
   notify()
 }
 
+/** Hook: subscribe to changes in the full set of session ids. */
 export function useShellSessions(): readonly string[] {
-  return useSyncExternalStore(subscribeSessions, getSessions, () => cached)
+  return useSyncExternalStore(subscribeSessions, getSessionIds, () => cachedAll)
+}
+
+/** Hook: subscribe to changes and project down to one container's sessions. */
+export function useShellSessionsForCid(cid: string): readonly string[] {
+  const all = useShellSessions()
+  // Recomputed each render — fine for the demo's tiny session counts.
+  return all.filter((sid) => sessions.get(sid)?.cid === cid)
 }

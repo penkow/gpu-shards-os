@@ -9,7 +9,10 @@ import {
   Copy,
   Loader2,
   Play,
+  RefreshCcw,
+  Save,
   Trash2,
+  X,
   XCircle,
   Zap,
 } from 'lucide-react'
@@ -23,16 +26,29 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from '@/components/ui/resizable'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { LogsView } from '@/features/panel/components/logs-view'
 import {
   deleteEndpoint,
+  deleteTemplate,
   getEndpoint,
   invokeEndpoint,
   invokeUrl,
+  listTemplates,
+  upsertTemplate,
 } from '@/features/endpoints/api'
-import type { EndpointDetail, InvokeResult } from '@/features/endpoints/types'
+import type { EndpointDetail, InvokeResult, RequestTemplate } from '@/features/endpoints/types'
 import { formatRelative } from '@/features/endpoints/lib/relative-time'
+import { SaveTemplateAsDialog } from './save-template-as-dialog'
+
+const UNSAVED = '__unsaved__'
 
 function p50(samples: number[]): number {
   if (samples.length === 0) return 0
@@ -61,6 +77,11 @@ export function EndpointDetailPage() {
   const [lastResult, setLastResult] = useState<InvokeResult | null>(null)
   const [lastError, setLastError] = useState<string>('')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [templates, setTemplates] = useState<RequestTemplate[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(UNSAVED)
+  const [dirty, setDirty] = useState(false)
+  const [saveAsOpen, setSaveAsOpen] = useState(false)
+  const initialTemplatesAppliedRef = useRef(false)
   const pollRef = useRef<NodeJS.Timeout | null>(null)
 
   const refresh = useCallback(async () => {
@@ -73,14 +94,103 @@ export function EndpointDetailPage() {
     }
   }, [name])
 
+  const refreshTemplates = useCallback(async () => {
+    try {
+      const res = await listTemplates(name)
+      setTemplates(res.templates)
+      return res.templates
+    } catch (e) {
+      console.warn('failed to load templates', e)
+      return []
+    }
+  }, [name])
+
   useEffect(() => {
     if (!name) return
     void refresh()
+    void refreshTemplates().then((tpls) => {
+      if (initialTemplatesAppliedRef.current) return
+      initialTemplatesAppliedRef.current = true
+      if (tpls.length > 0) {
+        setSelectedTemplateId(tpls[0].id)
+        setBodyText(tpls[0].body)
+        setDirty(false)
+      }
+    })
     pollRef.current = setInterval(refresh, 3000)
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
     }
-  }, [name, refresh])
+  }, [name, refresh, refreshTemplates])
+
+  const onPickTemplate = useCallback(
+    (id: string) => {
+      if (id === UNSAVED) {
+        setSelectedTemplateId(UNSAVED)
+        setDirty(false)
+        return
+      }
+      const tpl = templates.find((t) => t.id === id)
+      if (!tpl) return
+      setSelectedTemplateId(id)
+      setBodyText(tpl.body)
+      setDirty(false)
+    },
+    [templates],
+  )
+
+  const onBodyChange = useCallback(
+    (value: string) => {
+      setBodyText(value)
+      if (selectedTemplateId !== UNSAVED) setDirty(true)
+    },
+    [selectedTemplateId],
+  )
+
+  const onSaveAs = useCallback(
+    async (id: string, displayName: string) => {
+      try {
+        await upsertTemplate(name, id, { name: displayName, body: bodyText })
+        const tpls = await refreshTemplates()
+        const created = tpls.find((t) => t.id === id)
+        setSelectedTemplateId(created?.id ?? id)
+        setDirty(false)
+        toast.success(`Template "${displayName}" saved`)
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Failed to save template')
+      }
+    },
+    [name, bodyText, refreshTemplates],
+  )
+
+  const onUpdateTemplate = useCallback(async () => {
+    if (selectedTemplateId === UNSAVED) return
+    const tpl = templates.find((t) => t.id === selectedTemplateId)
+    if (!tpl) return
+    try {
+      await upsertTemplate(name, tpl.id, { name: tpl.name, body: bodyText })
+      await refreshTemplates()
+      setDirty(false)
+      toast.success(`Template "${tpl.name}" updated`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update template')
+    }
+  }, [name, selectedTemplateId, templates, bodyText, refreshTemplates])
+
+  const onDeleteTemplate = useCallback(async () => {
+    if (selectedTemplateId === UNSAVED) return
+    const tpl = templates.find((t) => t.id === selectedTemplateId)
+    if (!tpl) return
+    try {
+      await deleteTemplate(name, tpl.id)
+      await refreshTemplates()
+      setSelectedTemplateId(UNSAVED)
+      setDirty(false)
+      toast.success(`Template "${tpl.name}" deleted`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to delete template')
+    }
+  }, [name, selectedTemplateId, templates, refreshTemplates])
 
   const url = useMemo(() => invokeUrl(name), [name])
   const curlSnippet = useMemo(
@@ -172,6 +282,12 @@ export function EndpointDetailPage() {
               {ep?.use_gpu
                 ? `GPU ${ep.gpu_index} · ${ep.memory_limit_raw || '?'} mem · ${ep.sm_limit}% SM`
                 : 'CPU'}
+              {ep?.image_used ? (
+                <>
+                  {' · '}
+                  <span className="font-mono">{ep.image_used}</span>
+                </>
+              ) : null}
               {ep?.container_name ? (
                 <>
                   {' · '}
@@ -246,12 +362,68 @@ export function EndpointDetailPage() {
 
             <Card className="flex flex-1 flex-col">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Try it</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  Try it
+                  {templates.length > 0 && (
+                    <span className="ml-auto text-xs font-normal text-muted-foreground">
+                      {templates.length} template{templates.length === 1 ? '' : 's'} saved
+                    </span>
+                  )}
+                </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={selectedTemplateId} onValueChange={onPickTemplate}>
+                    <SelectTrigger className="h-8 w-56">
+                      <SelectValue placeholder="Template…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={UNSAVED}>(unsaved request)</SelectItem>
+                      {templates.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedTemplateId !== UNSAVED && dirty && (
+                    <span className="text-xs text-amber-600" title="Modified since loaded">•</span>
+                  )}
+                  <div className="ml-auto flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setSaveAsOpen(true)}
+                      title="Save current body as a new template"
+                    >
+                      <Save className="h-3.5 w-3.5" /> Save as…
+                    </Button>
+                    {selectedTemplateId !== UNSAVED && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={onUpdateTemplate}
+                          disabled={!dirty}
+                          title="Overwrite the selected template"
+                        >
+                          <RefreshCcw className="h-3.5 w-3.5" /> Update
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={onDeleteTemplate}
+                          title="Delete this template"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
                 <Textarea
                   value={bodyText}
-                  onChange={(e) => setBodyText(e.target.value)}
+                  onChange={(e) => onBodyChange(e.target.value)}
                   rows={6}
                   className="font-mono text-xs"
                   placeholder='{"key": "value"}'
@@ -333,6 +505,13 @@ export function EndpointDetailPage() {
         confirmText="Remove"
         destructive
         handleConfirm={() => void onDelete()}
+      />
+
+      <SaveTemplateAsDialog
+        open={saveAsOpen}
+        onOpenChange={setSaveAsOpen}
+        existingIds={templates.map((t) => t.id)}
+        onSave={onSaveAs}
       />
     </div>
   )

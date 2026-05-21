@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, Rocket } from 'lucide-react'
+import { Hammer, Loader2, Rocket } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -24,15 +24,18 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { createEndpoint } from '@/features/endpoints/api'
+import { BuildImageDialog } from '@/features/images/components/build-image-dialog'
 import type { Gpu } from '@/features/panel/types'
 
 const NAME_RE = /^[a-z][a-z0-9-]{0,31}$/
+const IMAGE_DEFAULT_SENTINEL = '__default__'
 
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   code: string
   gpus: Gpu[]
+  images: string[]
   defaultUseGpu: boolean
   defaultGpuIndex: number
 }
@@ -42,6 +45,7 @@ export function DeployEndpointDialog({
   onOpenChange,
   code,
   gpus,
+  images,
   defaultUseGpu,
   defaultGpuIndex,
 }: Props) {
@@ -51,6 +55,8 @@ export function DeployEndpointDialog({
   const [gpuIndex, setGpuIndex] = useState<number>(defaultGpuIndex)
   const [memory, setMemory] = useState('4g')
   const [smLimit, setSmLimit] = useState(50)
+  const [imageChoice, setImageChoice] = useState<string>(IMAGE_DEFAULT_SENTINEL)
+  const [buildOpen, setBuildOpen] = useState(false)
   const [deploying, setDeploying] = useState(false)
 
   // Reset state whenever the dialog opens.
@@ -61,6 +67,7 @@ export function DeployEndpointDialog({
       setGpuIndex(defaultGpuIndex)
       setMemory('4g')
       setSmLimit(50)
+      setImageChoice(IMAGE_DEFAULT_SENTINEL)
     }
   }, [open, defaultUseGpu, defaultGpuIndex])
 
@@ -82,6 +89,7 @@ export function DeployEndpointDialog({
         gpu_index: gpuIndex,
         memory: memory.trim() || '4g',
         sm_limit: smLimit,
+        image: imageChoice === IMAGE_DEFAULT_SENTINEL ? '' : imageChoice,
       })
       toast.success(`Endpoint live: ${name}`, { id: t })
       onOpenChange(false)
@@ -175,6 +183,40 @@ export function DeployEndpointDialog({
             </div>
           )}
 
+          <div className="space-y-1.5">
+            <Label htmlFor="ep-image">Image</Label>
+            <Select value={imageChoice} onValueChange={setImageChoice}>
+              <SelectTrigger id="ep-image" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={IMAGE_DEFAULT_SENTINEL}>
+                  (default) — {useGpu ? 'gpu-shards-editor-gpu:latest' : 'gpu-shards-editor-cpu:latest'}
+                </SelectItem>
+                {images.map((tag) => (
+                  <SelectItem key={tag} value={tag}>
+                    {tag}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">
+                Pick the runtime image. Custom images need a Python entry-point.
+              </p>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                onClick={() => setBuildOpen(true)}
+                className="h-auto gap-1 p-0 text-xs"
+              >
+                <Hammer className="h-3 w-3" />
+                Build new image…
+              </Button>
+            </div>
+          </div>
+
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={deploying}>
               Cancel
@@ -186,6 +228,11 @@ export function DeployEndpointDialog({
           </DialogFooter>
         </form>
       </DialogContent>
+      <BuildImageDialog
+        open={buildOpen}
+        onOpenChange={setBuildOpen}
+        onBuilt={(tag) => setImageChoice(tag)}
+      />
     </Dialog>
   )
 }

@@ -4,6 +4,8 @@ import type {
   EndpointDetail,
   EndpointsListResponse,
   InvokeResult,
+  RequestTemplate,
+  TemplatesResponse,
 } from './types'
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -64,4 +66,37 @@ export function invokeEndpoint(name: string, body: unknown): Promise<InvokeResul
 export function invokeUrl(name: string): string {
   const { url } = getBackendConfig()
   return `${url}/api/fn/${encodeURIComponent(name)}/invoke`
+}
+
+export function listTemplates(name: string): Promise<TemplatesResponse> {
+  return request<TemplatesResponse>(
+    `/api/endpoints/${encodeURIComponent(name)}/templates`,
+  )
+}
+
+export function upsertTemplate(
+  endpointName: string,
+  id: string,
+  payload: { name: string; body: string },
+): Promise<RequestTemplate> {
+  return request<RequestTemplate>(
+    `/api/endpoints/${encodeURIComponent(endpointName)}/templates/${encodeURIComponent(id)}`,
+    { method: 'PUT', body: JSON.stringify(payload) },
+  )
+}
+
+export function deleteTemplate(endpointName: string, id: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(
+    `/api/endpoints/${encodeURIComponent(endpointName)}/templates/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  )
+}
+
+/** kebab-case slug for a template display name. */
+export function slugifyTemplateName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64) || 'template'
 }
