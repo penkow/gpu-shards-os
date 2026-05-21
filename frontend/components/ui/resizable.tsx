@@ -1,6 +1,5 @@
 'use client'
 
-import { GripVertical } from 'lucide-react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import { cn } from '@/lib/utils'
 
@@ -44,15 +43,13 @@ function ResizableHandle({
     <Separator
       data-slot="resizable-handle"
       className={cn(
-        // Visible 1px line spanning the cross-axis, in the border colour.
-        'group/handle relative flex shrink-0 items-center justify-center bg-border outline-none transition-colors hover:bg-border/70',
-        // Horizontal orientation (default): thin vertical line.
-        'w-px',
-        // Vertical orientation: thin horizontal line.
-        'data-[orientation=vertical]:h-px data-[orientation=vertical]:w-full',
-        // Wider invisible hit target so the handle is easy to grab.
-        'after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2 after:content-[""]',
-        'data-[orientation=vertical]:after:inset-x-0 data-[orientation=vertical]:after:left-auto data-[orientation=vertical]:after:top-1/2 data-[orientation=vertical]:after:h-2 data-[orientation=vertical]:after:w-full data-[orientation=vertical]:after:-translate-y-1/2 data-[orientation=vertical]:after:translate-x-0',
+        // Transparent gutter: the panels keep their own borders and breathe;
+        // only the grip badge in the centre is visible.
+        'group/handle relative flex shrink-0 items-center justify-center outline-none',
+        // Vertical separator (between horizontally-arranged panels): vertical gutter spanning full height.
+        'aria-[orientation=vertical]:h-full aria-[orientation=vertical]:w-3',
+        // Horizontal separator (between vertically-arranged panels): horizontal gutter spanning full width.
+        'aria-[orientation=horizontal]:h-3 aria-[orientation=horizontal]:w-full',
         // Focus ring.
         'focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1',
         className,
@@ -60,9 +57,15 @@ function ResizableHandle({
       {...props}
     >
       {withHandle && (
-        <div className="z-10 flex h-4 w-6 items-center justify-center rounded-sm border bg-background shadow-sm transition-colors group-hover/handle:bg-accent data-[orientation=vertical]:h-6 data-[orientation=vertical]:w-6">
-          <GripVertical className="h-3 w-3 text-muted-foreground" />
-        </div>
+        <div
+          className={cn(
+            'rounded-full bg-border transition-colors group-hover/handle:bg-muted-foreground/60',
+            // Horizontal separator: wide, short pill.
+            'group-aria-[orientation=horizontal]/handle:h-1 group-aria-[orientation=horizontal]/handle:w-10',
+            // Vertical separator: tall, narrow pill.
+            'group-aria-[orientation=vertical]/handle:h-10 group-aria-[orientation=vertical]/handle:w-1',
+          )}
+        />
       )}
     </Separator>
   )
