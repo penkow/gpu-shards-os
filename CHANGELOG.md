@@ -26,6 +26,22 @@ Each released entry below corresponds to a git tag `v<MAJOR>.<MINOR>.<PATCH>`.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-05-28
+
+### Changed
+
+- `run.sh` now serves the frontend as a **production build** (`next start
+  -H 0.0.0.0`) by default instead of the dev server. The dev server's
+  hot-reload (HMR) websocket is refused for cross-origin/LAN browsers in
+  Next 16, so remote machines saw `ws://<host>:3000/_next/webpack-hmr`
+  failures; production serving has no HMR socket and works for every
+  client on the network.
+  - `HAMI_DEV=1 ./run.sh` falls back to the hot-reload dev server for
+    local development.
+  - `HAMI_BUILD=1` forces a rebuild before serving. Otherwise `run.sh`
+    builds only when no prior build exists (`frontend/.next/BUILD_ID`
+    missing) — e.g. on first launch after install.
+
 ## [0.8.0] — 2026-05-28
 
 ### Changed

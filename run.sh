@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # Launch backend + Next.js frontend together. Ctrl-C tears both down.
+#
+# The frontend is served as a production build by default (`next start`) so it
+# works for every machine on the network. Set HAMI_DEV=1 for the hot-reload dev
+# server (local use only — its HMR websocket is refused for cross-origin/LAN
+# browsers). HAMI_BUILD=1 forces a rebuild before serving.
 set -euo pipefail
 # Job control: each `&` job gets its own process group, so `kill -- -PID`
 # below tears down the whole npm -> node -> next-server tree.
@@ -26,7 +31,17 @@ BACKEND_PID=$!
 # Give the backend a moment to bind its port before the frontend starts.
 sleep 1
 
-(cd frontend && npm run dev -- -H 0.0.0.0) &
+if [ "${HAMI_DEV:-0}" = "1" ]; then
+    # Hot-reload dev server. Fine for local work; the HMR socket won't connect
+    # from other machines (Next blocks cross-origin dev endpoints).
+    (cd frontend && npm run dev -- -H 0.0.0.0) &
+else
+    if [ ! -f frontend/.next/BUILD_ID ] || [ "${HAMI_BUILD:-0}" = "1" ]; then
+        echo "==> building frontend production bundle (set HAMI_BUILD=1 to rebuild)"
+        (cd frontend && npm run build)
+    fi
+    (cd frontend && npm run start -- -H 0.0.0.0) &
+fi
 FRONTEND_PID=$!
 
 LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
