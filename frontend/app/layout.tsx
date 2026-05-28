@@ -24,6 +24,13 @@ const manrope = Manrope({
 export const metadata: Metadata = {
   title: 'GPU Shards OS',
   description: 'HAMi GPU-sharing control panel.',
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon.ico', sizes: 'any' },
+    ],
+    apple: '/favicon.svg',
+  },
 }
 
 export default async function RootLayout({

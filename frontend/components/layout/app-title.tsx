@@ -1,7 +1,8 @@
 'use client'
 
 import { Link } from '@/lib/router-compat'
-import { Boxes, Menu, X } from 'lucide-react'
+import { Menu, X } from 'lucide-react'
+import { Logo } from '@/assets/logo'
 import { cn } from '@/lib/utils'
 import {
   SidebarMenu,
@@ -28,7 +29,7 @@ export function AppTitle() {
               className='flex flex-1 items-center gap-2 text-start text-sm leading-tight'
             >
               <div className='flex aspect-square size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground'>
-                <Boxes className='size-4' />
+                <Logo className='size-4' />
               </div>
               <div className='grid flex-1 text-start text-sm leading-tight'>
                 <span className='truncate font-bold'>GPU Shards</span>

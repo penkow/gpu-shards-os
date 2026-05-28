@@ -26,6 +26,43 @@ Each released entry below corresponds to a git tag `v<MAJOR>.<MINOR>.<PATCH>`.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-05-28
+
+### Added
+
+#### Install page & one-line installer
+
+- New public `/install` landing page (`InstallLanding` + `InstallChrome`):
+  hero, a copy-to-clipboard `curl -fsSL <origin>/install.sh | bash`
+  command box, a requirements strip (Ubuntu 22.04+, NVIDIA + driver,
+  Docker, ports 3000/8000), and a link to the manual instructions. The
+  origin is read from `window.location.origin` at runtime so the command
+  always points at the serving host.
+- New `/install/manual` page (`ManualInstall`): eight step-by-step cards
+  (Docker Engine, NVIDIA Container Toolkit, Python 3 + Node 20, fetch
+  source, Python venv, frontend build, build the HAMi libvgpu image,
+  launch the stack), each with a copyable code block.
+- New `GET /install.sh` route handler serves a dynamically generated bash
+  installer. It detects its own public URL from `HAMI_PUBLIC_URL` or the
+  request's `x-forwarded-proto`/`x-forwarded-host`/`host` headers, then
+  installs Docker, the NVIDIA Container Toolkit, base packages, and
+  Node 20; fetches the source tarball; creates the Python venv; installs
+  and builds the frontend; and builds `hami-core-demo:latest`. Honors
+  `INSTALL_DIR`, `NODE_MAJOR`, and `SKIP_BUILD` env overrides and is
+  served `no-store` as `text/x-shellscript`.
+- New `GET /source.tar.gz` route handler streams a gzip tarball of the
+  project (via spawned `tar`), excluding `.git`, `.claude`,
+  `node_modules`, `.next`, `.venv`, `__pycache__`, `.DS_Store`,
+  `tsconfig.tsbuildinfo`, and `CLAUDE.md`.
+
+#### Branding
+
+- New `GPU Shards` logo mark replaces the old shadcn-admin glyph in the
+  `Logo` component; the sidebar `AppTitle` now renders it instead of the
+  lucide `Boxes` icon.
+- Added `public/logo.svg` and `public/favicon.svg`; `layout.tsx` wires up
+  the SVG favicon (with `.ico` fallback) and apple-touch icon.
+
 ## [0.6.0] — 2026-05-21
 
 ### Added
