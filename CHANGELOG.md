@@ -26,6 +26,31 @@ Each released entry below corresponds to a git tag `v<MAJOR>.<MINOR>.<PATCH>`.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-05-28
+
+### Changed
+
+- `run.sh` now binds both servers to all interfaces so the panel and API
+  are reachable from the whole internal network, not just localhost:
+  - `HAMI_BACKEND_HOST` defaults to `0.0.0.0` (was `127.0.0.1`).
+  - The Next.js dev server is launched with `-H 0.0.0.0`.
+  - `HAMI_ALLOWED_ORIGINS` defaults to `*` so a browser loading the panel
+    from `http://<host-ip>:3000` isn't CORS-blocked when it calls the API.
+    Safe because CORS runs with `allow_credentials=False` and auth is
+    header/token-based. All three remain env-overridable.
+- `run.sh` prints the detected LAN URLs for the frontend and backend on
+  startup.
+
+### Notes
+
+- Exposing the backend on `0.0.0.0` makes the Docker-control API reachable
+  by anyone on the network. It ships with no API key by default — set
+  `HAMI_API_KEY` and/or narrow `HAMI_ALLOWED_ORIGINS` before using this on
+  an untrusted network.
+- The panel's default backend URL is still `http://localhost:8000`. When
+  opening the panel from another machine, point the backend URL at the
+  host (Settings dialog, or `NEXT_PUBLIC_HAMI_BACKEND_URL`).
+
 ## [0.7.0] — 2026-05-28
 
 ### Added
