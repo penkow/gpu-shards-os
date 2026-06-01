@@ -1,7 +1,75 @@
+# Two stacks live in this file:
+#
+# 1. The control plane (`backend` + `frontend`)        — `docker compose up`
+#    The backend mounts the host's Docker socket so the panel can deploy /
+#    stop / shell into containers on the host daemon. The workspace dir is
+#    bind-mounted at the SAME path inside and outside the backend container,
+#    so when the daemon resolves editor/endpoint bind-mount sources (it
+#    resolves them on the host filesystem) the paths match.
+#
+# 2. HAMi-core libvgpu demo (`hami-limited` + `baseline`) — opt-in:
+#    `docker compose --profile demo up hami-limited baseline`
+#    Compares nvidia-smi inside a container with libvgpu preloaded
+#    (4 GiB cap) vs. without. Requires the host `hami-core-demo:latest`
+#    image to exist; `docker compose --profile demo build hami-limited`
+#    will produce it.
+#
+# Optional env (.env in this directory is auto-loaded by Compose):
+#   HAMI_API_KEY=...                 # generate one for any non-loopback host
+#   HAMI_BACKEND_PORT=8000           # change if :8000 collides
+#   HAMI_FRONTEND_PORT=3000          # change if :3000 collides
+#   HOST_WORKSPACE_DIR=/var/lib/...  # where editor/endpoint state lives
+#   HAMI_ALLOWED_ORIGINS=*           # narrow this once you set HAMI_API_KEY
+
 services:
-  # Run with HAMi-core's libvgpu.so preloaded — nvidia-smi should report
-  # the limited memory (4 GiB) instead of the GPU's full capacity.
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: gpu-shards-backend:latest
+    ports:
+      - "${HAMI_BACKEND_PORT:-8000}:8000"
+    environment:
+      HAMI_BACKEND_HOST: 0.0.0.0
+      HAMI_BACKEND_PORT: "8000"
+      HAMI_ALLOWED_ORIGINS: "${HAMI_ALLOWED_ORIGINS:-*}"
+      HAMI_API_KEY: "${HAMI_API_KEY:-}"
+      HAMI_LOG_LEVEL: "${HAMI_LOG_LEVEL:-INFO}"
+      # The Docker daemon (on the host) resolves bind-mount source paths on
+      # ITS filesystem. We keep both sides of the workspace mount at the same
+      # path so the editor + endpoint services don't have to translate.
+      HAMI_EDITOR_WORKSPACE_DIR: /var/lib/gpu-shards/workspace
+      # Endpoint invocations go to http://<docker_host_ip>:<ephemeral>/invoke.
+      # From inside the backend container the host is reachable via
+      # host.docker.internal (extra_hosts below makes this work on Linux too).
+      HAMI_DOCKER_HOST_IP: "${HAMI_DOCKER_HOST_IP:-host.docker.internal}"
+    volumes:
+      # Talk to the host's Docker daemon.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Workspace mirror — same path on both sides (see comment above).
+      - "${HOST_WORKSPACE_DIR:-/var/lib/gpu-shards/workspace}:/var/lib/gpu-shards/workspace"
+    extra_hosts:
+      # Required on Linux for host.docker.internal to resolve to the gateway.
+      # Mac/Windows Docker Desktop populate this automatically.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: gpu-shards-frontend:latest
+    ports:
+      - "${HAMI_FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # ---- HAMi libvgpu demo (opt-in via --profile demo) ---------------------
+  # Run with HAMi-core's libvgpu.so preloaded — nvidia-smi should report the
+  # 4 GiB cap instead of the GPU's full capacity. Comparison baseline is below.
   hami-limited:
+    profiles: ["demo"]
     build: .
     image: hami-core-demo:latest
     environment:
@@ -22,6 +90,7 @@ services:
 
   # Same image, no preload — baseline output for comparison.
   baseline:
+    profiles: ["demo"]
     image: hami-core-demo:latest
     environment:
       NVIDIA_VISIBLE_DEVICES: all

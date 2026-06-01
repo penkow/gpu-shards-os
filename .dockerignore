@@ -1,0 +1,42 @@
+# Used as the .dockerignore for the backend/Dockerfile build context (project
+# root). Keeps the layer small and avoids leaking secrets / local state into
+# the image. The frontend has its own .dockerignore under frontend/.
+
+.git
+.gitignore
+.github
+.claude
+CLAUDE.md
+.DS_Store
+
+# Python
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+
+# Node — the backend build doesn't need any of this, and including it would
+# balloon the build context.
+node_modules
+.next
+**/node_modules
+**/.next
+
+# Editor / local state
+.idea
+.vscode
+*.swp
+
+# Local env (never bake API keys into images)
+.env
+.env.*
+
+# Build artifacts not needed at runtime
+tsconfig.tsbuildinfo
+**/*.tsbuildinfo
+
+# Compose stack-specific local data
+.gpu-shards

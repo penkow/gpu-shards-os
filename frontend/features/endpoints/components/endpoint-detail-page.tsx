@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import {
+  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   Copy,
@@ -41,6 +42,7 @@ import {
   getEndpoint,
   invokeEndpoint,
   invokeUrl,
+  invokeUrlContainsKey,
   listTemplates,
   upsertTemplate,
 } from '@/features/endpoints/api'
@@ -192,7 +194,11 @@ export function EndpointDetailPage() {
     }
   }, [name, selectedTemplateId, templates, refreshTemplates])
 
-  const url = useMemo(() => invokeUrl(name), [name])
+  // Recomputed on every render so a config change (apiKey edited via Settings,
+  // backend URL flipped) is reflected without page reload — the parent
+  // re-renders on react-query invalidation triggered by setBackendConfig().
+  const url = invokeUrl(name)
+  const urlHasSecret = invokeUrlContainsKey()
   const curlSnippet = useMemo(
     () => `curl -X POST ${url} \\\n  -H 'Content-Type: application/json' \\\n  -d '${bodyText.replace(/\s+/g, ' ').trim() || '{}'}'`,
     [url, bodyText],
@@ -357,6 +363,16 @@ export function EndpointDetailPage() {
                     {curlSnippet}
                   </pre>
                 </div>
+                {urlHasSecret && (
+                  <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      This URL contains your API key as a <code>?token=</code> query param so the curl works
+                      copy-pasted. Treat it like a password — do not paste it in public chats, screenshots, or
+                      issue trackers.
+                    </span>
+                  </p>
+                )}
               </CardContent>
             </Card>
 

@@ -13,26 +13,43 @@ export type BackendConfig = {
   apiKey: string
 }
 
+// NEXT_PUBLIC_HAMI_BACKEND_URL is read at build time. If unset we fall back to
+// the serving host's origin so a remote browser (panel served over LAN) hits
+// the right backend out of the box — without it, default would be the client's
+// own localhost.
+const ENV_URL = (process.env.NEXT_PUBLIC_HAMI_BACKEND_URL ?? '').replace(/\/$/, '')
+
 const ENV_DEFAULT: BackendConfig = {
-  url: (process.env.NEXT_PUBLIC_HAMI_BACKEND_URL ?? 'http://localhost:8000').replace(/\/$/, ''),
+  url: ENV_URL,
   apiKey: process.env.NEXT_PUBLIC_HAMI_API_KEY ?? '',
 }
 
+function defaultUrl(): string {
+  if (ENV_URL) return ENV_URL
+  if (typeof window !== 'undefined') {
+    return `${window.location.protocol}//${window.location.hostname}:8000`
+  }
+  return 'http://localhost:8000'
+}
+
 export function getBackendConfig(): BackendConfig {
-  if (typeof window === 'undefined') return ENV_DEFAULT
+  if (typeof window === 'undefined') {
+    return { url: ENV_URL || 'http://localhost:8000', apiKey: ENV_DEFAULT.apiKey }
+  }
+  const fallbackUrl = defaultUrl()
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return ENV_DEFAULT
+    if (!raw) return { url: fallbackUrl, apiKey: ENV_DEFAULT.apiKey }
     const parsed = JSON.parse(raw) as Partial<BackendConfig>
     return {
       url:
         typeof parsed.url === 'string' && parsed.url.length > 0
           ? parsed.url.replace(/\/$/, '')
-          : ENV_DEFAULT.url,
+          : fallbackUrl,
       apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : ENV_DEFAULT.apiKey,
     }
   } catch {
-    return ENV_DEFAULT
+    return { url: fallbackUrl, apiKey: ENV_DEFAULT.apiKey }
   }
 }
 
@@ -47,5 +64,5 @@ export function setBackendConfig(config: BackendConfig): void {
 }
 
 export function getDefaultBackendConfig(): BackendConfig {
-  return { ...ENV_DEFAULT }
+  return { url: defaultUrl(), apiKey: ENV_DEFAULT.apiKey }
 }

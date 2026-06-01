@@ -22,6 +22,10 @@ INSTALL_DIR="\${INSTALL_DIR:-$HOME/gpu-shards-os}"
 NODE_MAJOR="\${NODE_MAJOR:-20}"
 SKIP_BUILD="\${SKIP_BUILD:-0}"
 
+# Captured by setup_api_key() when a key is generated for the first time;
+# printed in the closing banner so the user can save it before scrolling past.
+GENERATED_API_KEY=""
+
 C_RESET=$'\\033[0m'; C_BOLD=$'\\033[1m'; C_DIM=$'\\033[2m'
 C_RED=$'\\033[31m'; C_GREEN=$'\\033[32m'; C_YELLOW=$'\\033[33m'; C_CYAN=$'\\033[36m'
 
@@ -150,6 +154,34 @@ setup_frontend() {
   ok "frontend ready"
 }
 
+# ---- API key -------------------------------------------------------------
+generate_api_key() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 16
+  else
+    head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \\n'
+  fi
+}
+
+setup_api_key() {
+  local env_file="$INSTALL_DIR/.env"
+  if [ -f "$env_file" ] && grep -q '^HAMI_API_KEY=' "$env_file" 2>/dev/null; then
+    ok "HAMI_API_KEY already set in $env_file (keeping existing value)"
+    return
+  fi
+  local key
+  key="$(generate_api_key)"
+  : > "$env_file.tmp"
+  if [ -f "$env_file" ]; then
+    grep -v '^HAMI_API_KEY=' "$env_file" > "$env_file.tmp" || true
+  fi
+  printf 'HAMI_API_KEY=%s\\n' "$key" >> "$env_file.tmp"
+  mv "$env_file.tmp" "$env_file"
+  chmod 600 "$env_file" 2>/dev/null || true
+  GENERATED_API_KEY="$key"
+  ok "generated HAMI_API_KEY (saved to $env_file)"
+}
+
 # ---- HAMi libvgpu image --------------------------------------------------
 build_hami_image() {
   if [ "$SKIP_BUILD" = "1" ]; then
@@ -175,6 +207,7 @@ main() {
   fetch_source
   setup_python
   setup_frontend
+  setup_api_key
   build_hami_image
 
   cat <<EOF
@@ -188,6 +221,21 @@ $C_BOLD Start the stack:$C_RESET
 
   Then open: $C_CYAN http://localhost:3000 $C_RESET
 
+EOF
+
+  if [ -n "$GENERATED_API_KEY" ]; then
+    cat <<EOF
+$C_BOLD$C_YELLOW Save this API key — you'll need it the first time you open the panel:$C_RESET
+
+    $C_BOLD HAMI_API_KEY=$GENERATED_API_KEY$C_RESET
+
+$C_DIM It's also stored in $INSTALL_DIR/.env (chmod 600) and loaded by run.sh
+ on every launch. Regenerate with: rm $INSTALL_DIR/.env && curl -fsSL $INSTALL_URL/install.sh | bash$C_RESET
+
+EOF
+  fi
+
+  cat <<EOF
 $C_DIM Backend listens on :8000, frontend on :3000.
  Configure with HAMI_BACKEND_PORT, HAMI_API_KEY, DOCKER_HOST, etc.$C_RESET
 EOF

@@ -1,0 +1,21 @@
+# .dockerignore for the frontend/Dockerfile build context (./frontend).
+
+.git
+.gitignore
+.DS_Store
+
+node_modules
+.next
+*.tsbuildinfo
+
+.idea
+.vscode
+*.swp
+
+# Local env (never bake into image)
+.env
+.env.*
+
+# Don't ship CLAUDE.md or local agent state if they happen to land here
+.claude
+CLAUDE.md

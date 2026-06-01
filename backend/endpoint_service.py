@@ -117,6 +117,18 @@ class EndpointService:
         self._docker = docker
         # name -> _Stats. Reset on backend restart by design.
         self._stats: dict[str, _Stats] = {}
+        # name -> asyncio.Lock. Guards create()'s find-then-run to prevent
+        # two concurrent POSTs from racing past the existence check.
+        self._create_locks: dict[str, asyncio.Lock] = {}
+        self._create_locks_guard = asyncio.Lock()
+
+    async def _create_lock(self, name: str) -> asyncio.Lock:
+        async with self._create_locks_guard:
+            lock = self._create_locks.get(name)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._create_locks[name] = lock
+            return lock
 
     # ---- paths ----------------------------------------------------------
 
@@ -259,6 +271,27 @@ class EndpointService:
         memory: str,
         sm_limit: int,
         image: str = "",
+    ) -> EndpointDetail:
+        # Serialise concurrent creates for the same name so the loser sees a
+        # clean 409 instead of clobbering on-disk state and getting a wrapped
+        # Docker conflict error.
+        lock = await self._create_lock(name)
+        async with lock:
+            return await self._create_locked(
+                name=name, code=code, use_gpu=use_gpu, gpu_index=gpu_index,
+                memory=memory, sm_limit=sm_limit, image=image,
+            )
+
+    async def _create_locked(
+        self,
+        *,
+        name: str,
+        code: str,
+        use_gpu: bool,
+        gpu_index: int,
+        memory: str,
+        sm_limit: int,
+        image: str,
     ) -> EndpointDetail:
         existing = await self._find_container(name)
         if existing is not None:

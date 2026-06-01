@@ -5,4 +5,4 @@ talks to this service over HTTP + WebSocket — no direct Docker access
 from the UI process.
 """
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"

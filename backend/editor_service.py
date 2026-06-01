@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
@@ -26,6 +28,8 @@ log = logging.getLogger(__name__)
 
 
 _MAX_FILENAME_LEN = 255
+_RUNS_SUBDIR = "runs"
+_RUN_RETENTION_S = 3600
 
 
 def _safe_filename(raw: str) -> str:
@@ -85,6 +89,27 @@ class EditorService:
 
     # ---- files -----------------------------------------------------------
 
+    def _run_dir(self, run_id: str) -> Path:
+        return self._workspace_path() / _RUNS_SUBDIR / run_id
+
+    def _prune_old_runs(self) -> None:
+        """Best-effort cleanup of per-run subdirs older than _RUN_RETENTION_S.
+
+        Editor containers are `auto_remove=True` so we don't get a finish
+        callback; without this the runs/ tree would grow unbounded."""
+        runs_root = self._workspace_path() / _RUNS_SUBDIR
+        if not runs_root.exists():
+            return
+        cutoff = time.time() - _RUN_RETENTION_S
+        for d in runs_root.iterdir():
+            if not d.is_dir():
+                continue
+            try:
+                if d.stat().st_mtime < cutoff:
+                    shutil.rmtree(d, ignore_errors=True)
+            except FileNotFoundError:
+                pass
+
     def list_files(self) -> list[EditorFile]:
         root = self.ensure_workspace()
         out: list[EditorFile] = []
@@ -135,11 +160,17 @@ class EditorService:
         if not code.strip():
             raise DockerError("code is empty", status_code=400)
 
-        workspace = self.ensure_workspace()
+        self.ensure_workspace()
+        self._prune_old_runs()
         run_id = uuid4().hex[:12]
+        run_dir = self._run_dir(run_id)
+        run_dir.mkdir(parents=True, exist_ok=True)
 
-        (workspace / "main.py").write_text(code, encoding="utf-8")
-        (workspace / "_runner.py").write_text(
+        # Per-run subdir mirrors endpoint_service._endpoint_dir — concurrent Runs
+        # no longer race on a shared workspace/main.py. Each container sees only
+        # its own main.py at /workspace/main.py.
+        (run_dir / "main.py").write_text(code, encoding="utf-8")
+        (run_dir / "_runner.py").write_text(
             _RUNNER_TEMPLATE.replace("__RUN_ID__", run_id), encoding="utf-8",
         )
 
@@ -159,9 +190,9 @@ class EditorService:
                 capabilities=[["gpu"]],
             )]
 
-        host_workspace = str(workspace.resolve())
+        host_run_dir = str(run_dir.resolve())
         volumes = {
-            host_workspace: {"bind": settings.editor_workspace_mount, "mode": "rw"},
+            host_run_dir: {"bind": settings.editor_workspace_mount, "mode": "rw"},
         }
 
         name = f"editor-run-{run_id}"

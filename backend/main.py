@@ -93,6 +93,19 @@ def _require_sse_api_key(token: Optional[str]) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid API key")
 
 
+def _require_invoke_api_key(
+    x_api_key: Optional[str] = Header(default=None),
+    token: Optional[str] = Query(default=None),
+) -> None:
+    """Same as require_api_key, but also accepts ?token= so a curl snippet
+    copy-pasted out of the panel works without a header flag."""
+    if not settings.api_key:
+        return
+    if x_api_key == settings.api_key or token == settings.api_key:
+        return
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid API key")
+
+
 # ---- error handler -------------------------------------------------------
 
 @app.exception_handler(DockerError)
@@ -437,10 +450,12 @@ async def delete_endpoint_template(name: str, tid: str) -> OkResponse:
     return OkResponse()
 
 
-# NOTE: demo-grade — no auth on this route by design. Anyone who can reach
-# the backend can invoke any deployed endpoint. Fine for a local demo, not
-# for anything else.
-@app.post("/api/fn/{name}/invoke", response_model=InvokeResult, tags=["endpoints"])
+@app.post(
+    "/api/fn/{name}/invoke",
+    response_model=InvokeResult,
+    tags=["endpoints"],
+    dependencies=[Depends(_require_invoke_api_key)],
+)
 async def invoke_endpoint(name: str, request: Request) -> InvokeResult:
     try:
         body = await request.json()

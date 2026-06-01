@@ -62,10 +62,22 @@ export function invokeEndpoint(name: string, body: unknown): Promise<InvokeResul
   })
 }
 
-/** Public absolute URL for the invoke endpoint — used for curl snippets. */
+/** Public absolute URL for the invoke endpoint — used for curl snippets.
+ *
+ * When an API key is configured, includes it as a ?token= query param so the
+ * snippet works copy-pasted (the invoke route accepts header OR token). The
+ * caller (endpoint detail page) is responsible for warning the user that this
+ * URL contains a secret and shouldn't be shared publicly. */
 export function invokeUrl(name: string): string {
-  const { url } = getBackendConfig()
-  return `${url}/api/fn/${encodeURIComponent(name)}/invoke`
+  const { url, apiKey } = getBackendConfig()
+  const base = `${url}/api/fn/${encodeURIComponent(name)}/invoke`
+  if (!apiKey) return base
+  return `${base}?token=${encodeURIComponent(apiKey)}`
+}
+
+/** Whether the displayed invoke URL embeds an API key (i.e. is a secret). */
+export function invokeUrlContainsKey(): boolean {
+  return !!getBackendConfig().apiKey
 }
 
 export function listTemplates(name: string): Promise<TemplatesResponse> {

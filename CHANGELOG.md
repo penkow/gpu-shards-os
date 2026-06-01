@@ -26,6 +26,101 @@ Each released entry below corresponds to a git tag `v<MAJOR>.<MINOR>.<PATCH>`.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-06-01
+
+This release closes "Gap B" (make the panel safely usable by more than one
+person on the LAN) and ships a containerised deployment topology so the
+control plane itself can run as `docker compose up`.
+
+### Added
+
+#### Containerised deployment
+
+- New `backend/Dockerfile` — python:3.11-slim + tini + requirements;
+  `python -m backend` on `:8000`. The container talks to the host's Docker
+  daemon over the mounted unix socket; no docker CLI is installed inside.
+- New `frontend/Dockerfile` — multi-stage Node 20 alpine: deps → builder
+  → runner. Serves the production build via `next start -H 0.0.0.0`. The
+  runner image carries `tar` so the existing `/source.tar.gz` route still
+  works.
+- New `.dockerignore` (root) and `frontend/.dockerignore` keep the build
+  context lean and prevent `.env` / `.claude` / `CLAUDE.md` from being
+  baked into images.
+- `docker-compose.yml` rewritten:
+  - `backend` service mounts `/var/run/docker.sock` and bind-mounts
+    `${HOST_WORKSPACE_DIR:-/var/lib/gpu-shards/workspace}` at the SAME
+    path inside the container so the host's Docker daemon resolves
+    editor/endpoint bind-mount sources correctly.
+  - `extra_hosts: host.docker.internal:host-gateway` makes the
+    backend's endpoint-invoke path work on Linux too (Mac/Windows Docker
+    Desktop populate this automatically).
+  - `HAMI_API_KEY`, `HAMI_BACKEND_PORT`, `HAMI_FRONTEND_PORT`,
+    `HOST_WORKSPACE_DIR`, `HAMI_ALLOWED_ORIGINS` are read from the
+    shell / a project-root `.env` so secrets stay out of the file.
+  - `frontend` service depends on `backend`, publishes `:3000`.
+  - **Demo services moved behind `profiles: [demo]`** — `hami-limited`
+    and `baseline` no longer auto-start on `docker compose up`. Run
+    them with `docker compose --profile demo up hami-limited baseline`.
+
+#### Auth & sharing posture
+
+- `install.sh` route now generates a 32-char random `HAMI_API_KEY` on
+  first install, writes it to `$INSTALL_DIR/.env` (chmod 600), and
+  prints it once in the closing banner with regenerate instructions.
+  Idempotent on re-install — existing keys are preserved.
+- `run.sh` sources `.env` via `set -a` before the export block, so the
+  generated key persists across launches without any extra env wiring.
+- New `_require_invoke_api_key` dependency on `/api/fn/{name}/invoke`
+  accepts the key via the `X-API-Key` header **or** a `?token=` query
+  param — so a curl snippet copied out of the panel works copy-pasted.
+  The old "demo-grade — no auth on this route by design" comment is
+  gone; the route is now gated like every other state-changing route.
+- `invokeUrl()` in the frontend appends `?token=...` when an API key
+  is configured; the endpoint detail page renders an amber warning
+  whenever the displayed URL contains a key.
+
+### Changed
+
+#### Frontend backend-URL default falls back to the serving host
+
+- `frontend/lib/backend-config.ts`: when `NEXT_PUBLIC_HAMI_BACKEND_URL`
+  is unset at build time and the browser has no localStorage override,
+  the panel now defaults to
+  `${window.location.protocol}//${window.location.hostname}:8000`
+  instead of `http://localhost:8000`. A teammate opening the panel from
+  another machine reaches the right backend out of the box — no
+  Settings-dialog dance, no rebuild with a baked-in IP.
+- `DisconnectedBanner` gets an **Open Settings** action (only shown when
+  the fetch failed, not when the backend reported a Docker-state error)
+  wired via a `gpu-shards:open-settings` CustomEvent that the
+  `ConfigDrawer` listens for.
+
+#### Editor and endpoint isolation
+
+- `editor_service.start_run` now writes `main.py` + `_runner.py` into a
+  per-run subdirectory (`<workspace>/runs/<run_id>/`) and bind-mounts
+  THAT, not the shared workspace root. Concurrent Runs no longer race on
+  a single shared `main.py` — the prior bug let user A's container
+  execute user B's code under user A's run-id. A best-effort prune drops
+  run subdirs older than 1 h on every new run so the tree doesn't grow.
+- `endpoint_service.create` holds a per-name `asyncio.Lock` across the
+  find-then-run block. Two concurrent POSTs for the same endpoint name
+  now serialize: winner creates, loser sees a clean **409 endpoint
+  already exists** instead of a wrapped Docker 400 — and there is no
+  on-disk pollution of the winner's workspace by the loser.
+
+### Notes
+
+- The editor + endpoint flows still need the
+  `gpu-shards-editor-{cpu,gpu}:latest` images on the host daemon to
+  succeed. The compose stack does **not** build them — see Gap C.
+- The frontend container's `/source.tar.gz` route was designed for a
+  host-installed deployment and produces unrelated output from inside a
+  container; the curl-install path is unaffected when GPU Shards is run
+  the host-installed way (clone repo, `./run.sh`).
+- The backend image is GPU-free by design — the panel never touches the
+  GPU directly. Only containers it spawns ask for `--gpus`.
+
 ## [0.9.0] — 2026-05-28
 
 ### Changed

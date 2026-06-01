@@ -57,6 +57,14 @@ export function ConfigDrawer() {
     setTestResult(null)
   }, [open])
 
+  // Listen for a global event so other components (e.g. DisconnectedBanner)
+  // can pop the settings dialog without needing a ref or shared state.
+  useEffect(() => {
+    const onOpen = () => setOpen(true)
+    window.addEventListener('gpu-shards:open-settings', onOpen)
+    return () => window.removeEventListener('gpu-shards:open-settings', onOpen)
+  }, [])
+
   const normalizeUrl = (raw: string) => raw.trim().replace(/\/$/, '')
 
   const testConnection = async () => {
